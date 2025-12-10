@@ -18,7 +18,8 @@ export async function runMiningBatch() {
             .from('keywords')
             .select('*')
             .is('total_doc_cnt', null)
-            .limit(20); // Optimized limit
+            .order('total_search_cnt', { ascending: false }) // Prioritize High Volume
+            .limit(50); // Increased limit for visibility
 
         if (missingError) throw missingError;
 
@@ -29,7 +30,8 @@ export async function runMiningBatch() {
             const errors: string[] = [];
 
             // Parallel Process
-            const BATCH_SIZE = 5;
+            // Increase Concurrency for speed (we have 9 keys)
+            const BATCH_SIZE = 10;
             for (let i = 0; i < missingDocs.length; i += BATCH_SIZE) {
                 const chunk = missingDocs.slice(i, i + BATCH_SIZE);
                 await Promise.all(chunk.map(async (item) => {
