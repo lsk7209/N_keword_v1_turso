@@ -161,7 +161,7 @@ export async function processSeedKeyword(seedKeyword: string, limitDocCount = 0,
     if (rowsDeferred.length > 0) {
         const { error: deferredError } = await adminDb
             .from('keywords')
-            .upsert(rowsDeferred, { onConflict: 'keyword' });
+            .upsert(rowsDeferred, { onConflict: 'keyword', ignoreDuplicates: true });
 
         if (deferredError) {
             console.error('DB Upsert Error (Deferred):', deferredError);
