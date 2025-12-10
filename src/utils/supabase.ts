@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+const supabaseKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
 
 if (!supabaseUrl || !supabaseKey) {
     console.warn('Warning: Missing Supabase environment variables. App will not function correctly.');
@@ -11,7 +11,7 @@ if (!supabaseUrl || !supabaseKey) {
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export const getServiceSupabase = () => {
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
     if (!serviceRoleKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 
     return createClient(supabaseUrl, serviceRoleKey, {

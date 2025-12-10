@@ -142,32 +142,37 @@ export async function processSeedKeyword(seedKeyword: string, limitDocCount = 0,
     }));
 
     // 6. Bulk Upsert
-    // Split into two groups:
-    // A. Rows with Document Counts (Complete Data) -> Standard Upsert (Update allowed)
-    // B. Rows Deferred (Null Docs) -> Insert Only (ignoreDuplicates) to prevent overwriting existing valid data with NULL
+    let totalSaved = 0;
 
+    // A. Rows with Document Counts (Complete Data) -> Standard Upsert (Update allowed)
     if (rowsToInsert.length > 0) {
         const { error: insertError } = await adminDb
             .from('keywords')
             .upsert(rowsToInsert, { onConflict: 'keyword' });
 
-        if (insertError) console.error('DB Upsert Error (Complete):', insertError);
+        if (insertError) {
+            console.error('DB Upsert Error (Complete):', insertError);
+            throw new Error(`DB Save Failed (Complete): ${insertError.message}`);
+        }
+        totalSaved += rowsToInsert.length;
     }
 
+    // B. Rows Deferred (Null Docs) -> Insert Only (ignoreDuplicates)
     if (rowsDeferred.length > 0) {
-        // Use ignoreDuplicates to protect existing data
         const { error: deferredError } = await adminDb
             .from('keywords')
             .upsert(rowsDeferred, { onConflict: 'keyword', ignoreDuplicates: true });
 
-        if (deferredError) console.error('DB Upsert Error (Deferred):', deferredError);
+        if (deferredError) {
+            console.error('DB Upsert Error (Deferred):', deferredError);
+            throw new Error(`DB Save Failed (Deferred): ${deferredError.message}`);
+        }
+        totalSaved += rowsDeferred.length;
     }
-
-    const totalSaved = rowsToInsert.length + rowsDeferred.length;
 
     return {
         processed: rowsToInsert.length,
         saved: totalSaved,
-        items: skipDocFetch ? rowsDeferred : rowsToInsert // Return correct items
+        items: skipDocFetch ? rowsDeferred : rowsToInsert // Return user-facing processed items
     };
 }
