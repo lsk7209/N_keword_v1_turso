@@ -36,13 +36,7 @@ export default function DataPage() {
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-12 gap-4 px-4 text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                        <div className="col-span-4">키워드</div>
-                        <div className="col-span-2 text-right">검색량</div>
-                        <div className="col-span-2 text-right">문서수</div>
-                        <div className="col-span-2 text-right">비율</div>
-                        <div className="col-span-2 text-right">등급</div>
-                    </div>
+
 
                     <KeywordList sort={sort} />
                 </div>
