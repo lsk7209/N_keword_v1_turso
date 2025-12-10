@@ -24,7 +24,7 @@ export async function runMiningBatch() {
 
         if (missingDocs && missingDocs.length > 0) {
             log(`[Batch] Mode: FILL_DOCS (${missingDocs.length} items)`);
-            const results = [];
+            const results: string[] = [];
 
             // Parallel Process
             // Limit concurrency if needed, but 20 is fine for 9 keys?
