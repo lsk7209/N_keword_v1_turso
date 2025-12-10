@@ -1,14 +1,18 @@
-
 'use client';
 
 import { useState } from 'react';
 import { Loader2, Pickaxe, Search, CheckCircle2 } from 'lucide-react';
+import { triggerMining } from '@/app/actions'; // Server Action
 
 export default function ManualMiner() {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<any[]>([]);
     const [error, setError] = useState('');
+
+    // System Trigger State
+    const [sysLoading, setSysLoading] = useState(false);
+    const [sysMsg, setSysMsg] = useState('');
 
     const handleMining = async () => {
         if (!input.trim()) return;
@@ -52,6 +56,23 @@ export default function ManualMiner() {
         }
     };
 
+    const handleBatchTrigger = async () => {
+        setSysLoading(true);
+        setSysMsg('');
+        try {
+            const res: any = await triggerMining();
+            if (res.success) {
+                setSysMsg(`✅ 봇 실행 완료: ${res.mode}모드 (${res.processed}개 처리됨)`);
+            } else {
+                setSysMsg(`❌ 실행 실패: ${res.error || '알 수 없는 오류'}`);
+            }
+        } catch (e) {
+            setSysMsg('❌ 요청 실패');
+        } finally {
+            setSysLoading(false);
+        }
+    };
+
     return (
         <div className="w-full">
             <div className="flex gap-2">
@@ -86,11 +107,24 @@ export default function ManualMiner() {
                             <Search className="w-5 h-5 text-emerald-600" />
                             수집된 연관 키워드 ({results.length}개)
                         </h3>
-                        <span className="text-sm text-zinc-500 flex items-center gap-1">
+                        <span className="text-sm text-zinc-500 flex items-center gap-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                             DB 저장 완료 (상세 분석 대기중)
+                            <button
+                                onClick={handleBatchTrigger}
+                                disabled={sysLoading}
+                                className="ml-2 px-2 py-1 text-xs bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 rounded text-zinc-600 transition-colors disabled:opacity-50"
+                            >
+                                {sysLoading ? '실행중...' : '⚡ 봇 즉시 실행'}
+                            </button>
                         </span>
                     </div>
+
+                    {sysMsg && (
+                        <div className="text-sm text-blue-600 font-medium px-1 text-right">
+                            {sysMsg}
+                        </div>
+                    )}
 
                     <div className="max-h-96 overflow-y-auto border border-zinc-200 dark:border-zinc-700 rounded-lg">
                         <table className="w-full text-sm text-left">
