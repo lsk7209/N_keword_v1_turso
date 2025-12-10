@@ -53,11 +53,14 @@ export default function InsightPage() {
 
                 {/* Main List */}
                 <div className="space-y-4">
-                    <div className="grid grid-cols-12 gap-4 px-4 text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                        <div className="col-span-4">키워드</div>
+                    <div className="grid grid-cols-12 gap-2 px-4 text-[10px] sm:text-xs font-semibold text-zinc-500 uppercase tracking-wider items-center">
+                        <div className="col-span-3">키워드</div>
                         <div className="col-span-2 text-right">검색량</div>
-                        <div className="col-span-2 text-right">문서수</div>
-                        <div className="col-span-2 text-right">비율</div>
+                        <div className="col-span-1 text-right">블로그</div>
+                        <div className="col-span-1 text-right">카페</div>
+                        <div className="col-span-1 text-right">웹</div>
+                        <div className="col-span-1 text-right">뉴스</div>
+                        <div className="col-span-1 text-right">비율</div>
                         <div className="col-span-2 text-right">등급</div>
                     </div>
 

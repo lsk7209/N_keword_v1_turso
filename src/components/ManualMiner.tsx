@@ -100,10 +100,6 @@ export default function ManualMiner() {
                                     <th className="px-4 py-3 font-medium text-right">PC 검색량</th>
                                     <th className="px-4 py-3 font-medium text-right">Mobile 검색량</th>
                                     <th className="px-4 py-3 font-medium text-right">총 검색량</th>
-                                    <th className="px-4 py-3 font-medium text-right text-xs text-zinc-400">블로그</th>
-                                    <th className="px-4 py-3 font-medium text-right text-xs text-zinc-400">카페</th>
-                                    <th className="px-4 py-3 font-medium text-right text-xs text-zinc-400">웹</th>
-                                    <th className="px-4 py-3 font-medium text-right text-xs text-zinc-400">뉴스</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
@@ -113,10 +109,6 @@ export default function ManualMiner() {
                                         <td className="px-4 py-2 text-right text-zinc-500">{item.pc_search_cnt.toLocaleString()}</td>
                                         <td className="px-4 py-2 text-right text-zinc-500">{item.mo_search_cnt.toLocaleString()}</td>
                                         <td className="px-4 py-2 text-right font-bold text-zinc-900 dark:text-zinc-100">{item.total_search_cnt.toLocaleString()}</td>
-                                        <td className="px-4 py-2 text-right text-xs text-zinc-500">{item.blog_doc_cnt?.toLocaleString() || '-'}</td>
-                                        <td className="px-4 py-2 text-right text-xs text-zinc-500">{item.cafe_doc_cnt?.toLocaleString() || '-'}</td>
-                                        <td className="px-4 py-2 text-right text-xs text-zinc-500">{item.web_doc_cnt?.toLocaleString() || '-'}</td>
-                                        <td className="px-4 py-2 text-right text-xs text-zinc-500">{item.news_doc_cnt?.toLocaleString() || '-'}</td>
                                     </tr>
                                 ))}
                             </tbody>

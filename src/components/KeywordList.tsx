@@ -105,21 +105,31 @@ export default function KeywordList({ sort }: { sort: string }) {
                             {isLoaderRow ? (
                                 <div className="w-full flex justify-center text-sm text-gray-500 py-2">더 불러오는 중...</div>
                             ) : (
-                                <div className="grid grid-cols-12 gap-4 w-full text-sm">
-                                    <div className="col-span-4 font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                                <div className="grid grid-cols-12 gap-2 w-full text-xs sm:text-sm items-center">
+                                    <div className="col-span-3 font-medium text-zinc-900 dark:text-zinc-100 truncate" title={post.keyword}>
                                         {post.keyword}
                                     </div>
                                     <div className="col-span-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">
                                         {post.total_search_cnt.toLocaleString()}
                                     </div>
-                                    <div className="col-span-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">
-                                        {post.total_doc_cnt?.toLocaleString() || '-'}
+                                    <div className="col-span-1 text-right tabular-nums text-zinc-400">
+                                        {post.blog_doc_cnt?.toLocaleString() || '-'}
                                     </div>
-                                    <div className="col-span-2 text-right tabular-nums font-semibold text-emerald-600">
+                                    <div className="col-span-1 text-right tabular-nums text-zinc-400">
+                                        {post.cafe_doc_cnt?.toLocaleString() || '-'}
+                                    </div>
+                                    <div className="col-span-1 text-right tabular-nums text-zinc-400">
+                                        {post.web_doc_cnt?.toLocaleString() || '-'}
+                                    </div>
+                                    <div className="col-span-1 text-right tabular-nums text-zinc-400">
+                                        {post.news_doc_cnt?.toLocaleString() || '-'}
+                                    </div>
+                                    {/* Total Doc omitted or small? Let's show Ratio/Tier bigger */}
+                                    <div className="col-span-1 text-right tabular-nums font-semibold text-emerald-600">
                                         {post.golden_ratio?.toFixed(2)}
                                     </div>
                                     <div className="col-span-2 flex justify-end">
-                                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold 
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold 
                         ${post.tier === 'PLATINUM' ? 'bg-cyan-100 text-cyan-700' :
                                                 post.tier === 'GOLD' ? 'bg-yellow-100 text-yellow-700' :
                                                     post.tier === 'SILVER' ? 'bg-slate-100 text-slate-700' :
