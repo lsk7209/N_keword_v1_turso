@@ -44,24 +44,11 @@ class KeyManager {
                         // Handle Object format: { key, secret, cust }
                         if (typeof k === 'object' && k.key) {
                             return {
-                                id: k.key,
+                                id: k.key.trim(),
                                 parsed: {
-                                    accessKey: k.key,
-                                    secretKey: k.secret,
-                                    customerId: k.cust
-                                },
-                                cooldownUntil: 0
-                            };
-                        }
-                        // Handle String format: "key:secret:cust"
-                        if (typeof k === 'string') {
-                            const parts = k.split(':');
-                            return {
-                                id: k,
-                                parsed: {
-                                    accessKey: parts[0],
-                                    secretKey: parts[1],
-                                    customerId: parts[2]
+                                    accessKey: k.key.trim(),
+                                    secretKey: k.secret ? k.secret.trim() : '',
+                                    customerId: k.cust ? k.cust.trim() : ''
                                 },
                                 cooldownUntil: 0
                             };
