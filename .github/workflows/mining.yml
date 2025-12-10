@@ -1,0 +1,16 @@
+name: Mining Cron Job
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # Every 5 minutes
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Mining API
+        run: |
+          curl -X GET ${{ secrets.PROD_URL }}/api/miner/execute \
+          -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
+          --max-time 65

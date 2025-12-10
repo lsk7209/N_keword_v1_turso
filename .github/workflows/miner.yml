@@ -1,0 +1,16 @@
+name: Golden Keyword Miner Cron
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # Run every 5 minutes
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Miner API
+        run: |
+          curl -X GET "${{ secrets.PROD_URL }}/api/miner/execute" \
+          -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
+          --max-time 70
