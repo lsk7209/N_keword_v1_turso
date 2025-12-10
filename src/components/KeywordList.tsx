@@ -99,7 +99,8 @@ export default function KeywordList({ sort }: { sort: string }) {
                                 height: `${virtualRow.size}px`,
                                 transform: `translateY(${virtualRow.start}px)`,
                             }}
-                            className="flex items-center px-4 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors border-b border-zinc-100 dark:border-zinc-800"
+                            className="keyword-row flex items-center px-4 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors border-b border-zinc-100 dark:border-zinc-800"
+                            data-keyword={post.keyword}
                         >
                             {isLoaderRow ? (
                                 <div className="w-full flex justify-center text-sm text-gray-500 py-2">더 불러오는 중...</div>
