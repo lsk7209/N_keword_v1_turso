@@ -23,9 +23,9 @@ export async function POST(req: NextRequest) {
 
         for (const seed of seeds) {
             try {
-                // For manual collection, we want to see results immediately.
-                // Pass limit=0, skipDocFetch=true
-                const result = await processSeedKeyword(seed, 0, true);
+                // For manual collection, we want to fetch document counts as well.
+                // Limit to top 50 to prevent timeout, skipDocFetch=false
+                const result = await processSeedKeyword(seed, 50, false);
                 results.push({
                     seed,
                     success: true,
