@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Pickaxe } from 'lucide-react';
 
+import MonitoringStatus from './MonitoringStatus';
+
 export default function Navbar() {
     const pathname = usePathname();
 
@@ -44,8 +46,7 @@ export default function Navbar() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    {/* Placeholder for future login/actions */}
-                    <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800"></div>
+                    <MonitoringStatus />
                 </div>
             </div>
         </nav>
