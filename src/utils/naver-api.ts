@@ -87,10 +87,12 @@ export async function fetchRelatedKeywords(seed: string) {
 }
 
 export async function fetchDocumentCount(keyword: string) {
-    const types = ['blog', 'cafearticle', 'webkr', 'news'] as const;
+
+
+    type SearchType = 'blog' | 'cafearticle' | 'webkr' | 'news';
 
     // Helper for single type with retry logic
-    const fetchType = async (type: typeof types[number]) => {
+    const fetchType = async (type: SearchType) => {
         let lastErr;
         // Try up to 3 times to get a valid result using different keys
         for (let i = 0; i < 3; i++) {
