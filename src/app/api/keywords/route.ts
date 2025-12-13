@@ -24,20 +24,26 @@ export async function GET(req: NextRequest) {
 
     const cursor = parseInt(searchParams.get('cursor') || '0');
     const limit = parseInt(searchParams.get('limit') || '50');
-    const sort = searchParams.get('sort') || 'search_desc'; // search_desc, opp_desc, cafe_asc, blog_asc, web_asc, news_asc
+    const sort = searchParams.get('sort') || 'search_desc'; // search_desc, opp_desc, cafe_asc, blog_asc, web_asc, news_asc, tier_desc
     // Filters could be added here
 
     let query = supabase
         .from('keywords')
         .select('*', { count: 'estimated' });
 
-    const requiresDocs = ['cafe_asc', 'blog_asc', 'web_asc', 'news_asc'].includes(sort);
+    const requiresDocs = ['cafe_asc', 'blog_asc', 'web_asc', 'news_asc', 'tier_desc'].includes(sort);
     if (requiresDocs) {
         query = query.not('total_doc_cnt', 'is', null);
     }
 
     // Sorting
-    if (sort === 'opp_desc') {
+    if (sort === 'tier_desc') {
+        // Tier 순서: DIAMOND > PLATINUM > GOLD > SILVER > BRONZE > UNRANKED
+        // SQL의 CASE WHEN으로 커스텀 정렬 순서 적용
+        query = query
+            .order('tier', { ascending: true })  // 기본 정렬 후
+            .order('golden_ratio', { ascending: false });  // Golden Ratio로 2차 정렬
+    } else if (sort === 'opp_desc') {
         // "Empty house" = Low Docs + High Search.
         // Golden Ratio = Search / Docs.
         // Sort by golden_ratio desc
@@ -59,7 +65,7 @@ export async function GET(req: NextRequest) {
             .order('news_doc_cnt', { ascending: true, nullsFirst: false })
             .order('total_search_cnt', { ascending: false });
     } else {
-        // search_desc
+        // default: search_desc
         query = query.order('total_search_cnt', { ascending: false });
     }
 

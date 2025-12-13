@@ -34,6 +34,12 @@ export default function DataPage() {
                         >
                             전체 조회 (검색량순)
                         </button>
+                        <button
+                            onClick={() => setSort('tier_desc')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'tier_desc' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50'}`}
+                        >
+                            💎 등급순 (Diamond→Bronze)
+                        </button>
                         {[
                             { key: 'cafe_asc', label: '카페 적은순' },
                             { key: 'blog_asc', label: '블로그 적은순' },
