@@ -50,3 +50,6 @@
 - [x] **Monitoring Dashboard**: Create `/monitor` page to view system status and keyword statistics.
 - [x] **Throughput Optimization**: Increased batch limits (50 items) and prioritized processing by high search volume.
 
+## 9. UI Refinements
+- [x] **Reorder Data Columns**: Updated attribute order in KeywordList as requested (Keyword -> Total Search -> Docs -> Ratio -> Tier -> Search/Click/CTR/Comp).
+
