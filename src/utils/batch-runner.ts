@@ -59,7 +59,8 @@ export async function runMiningBatch() {
                                 golden_ratio: ratio,
                                 tier: tier
                             })
-                            .eq('id', item.id);
+                            .eq('id', item.id)
+                            .select('id'); // minimal returning
 
                         if (updateError) {
                             console.error('Update Error:', updateError);

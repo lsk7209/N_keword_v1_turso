@@ -1,6 +1,8 @@
 
 import { keyManager } from './key-manager';
 
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 // Web Crypto HMAC helper
 async function generateSignature(timestamp: string, method: string, uri: string, secretKey: string) {
     const message = `${timestamp}.${method}.${uri}`;
@@ -59,6 +61,7 @@ export async function fetchRelatedKeywords(seed: string) {
             if (response.status === 429) {
                 keyManager.report429(key.id, 'AD');
                 console.warn(`Ad Key ${key.id} rate limited. Retrying...`);
+                await sleep(3000); // gentle backoff per notice
                 continue; // Try next key
             }
 
@@ -114,6 +117,7 @@ export async function fetchDocumentCount(keyword: string) {
 
                 if (res.status === 429) {
                     keyManager.report429(key.id, 'SEARCH');
+                    await sleep(1200); // small backoff
                     continue; // Try next key
                 }
 
