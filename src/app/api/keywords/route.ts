@@ -12,8 +12,14 @@ export async function GET(req: NextRequest) {
     const authHeader = req.headers.get('CRON_SECRET');
     const queryKey = searchParams.get('key');
     const secret = process.env.CRON_SECRET;
-    if (!secret || (authHeader !== secret && queryKey !== secret)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // 인증이 제공된 경우에만 검증 (선택적 인증)
+    // 인증 없이도 공개 데이터 조회 가능
+    if (secret && (authHeader || queryKey)) {
+        // 인증 정보가 제공되었지만 일치하지 않는 경우에만 거부
+        if (authHeader !== secret && queryKey !== secret) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
     }
 
     const cursor = parseInt(searchParams.get('cursor') || '0');
