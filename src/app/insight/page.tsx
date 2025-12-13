@@ -30,10 +30,10 @@ export default function InsightPage() {
                             높은 검색량순
                         </button>
                         <button
-                            onClick={() => setSort('tier_desc')}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'tier_desc' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50'}`}
+                            onClick={() => setSort(sort === 'tier_desc' ? 'tier_asc' : 'tier_desc')}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'tier_desc' || sort === 'tier_asc' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50'}`}
                         >
-                            💎 등급순
+                            💎 등급순 {sort === 'tier_asc' ? '↑' : '↓'}
                         </button>
                         <button
                             onClick={() => setSort('opp_desc')}

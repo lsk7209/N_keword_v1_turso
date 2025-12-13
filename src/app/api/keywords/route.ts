@@ -31,18 +31,22 @@ export async function GET(req: NextRequest) {
         .from('keywords')
         .select('*', { count: 'estimated' });
 
-    const requiresDocs = ['cafe_asc', 'blog_asc', 'web_asc', 'news_asc', 'tier_desc'].includes(sort);
+    const requiresDocs = ['cafe_asc', 'blog_asc', 'web_asc', 'news_asc', 'tier_desc', 'tier_asc'].includes(sort);
     if (requiresDocs) {
         query = query.not('total_doc_cnt', 'is', null);
     }
 
     // Sorting
     if (sort === 'tier_desc') {
-        // Tier 순서: DIAMOND > PLATINUM > GOLD > SILVER > BRONZE > UNRANKED
-        // SQL의 CASE WHEN으로 커스텀 정렬 순서 적용
+        // Tier 순서: DIAMOND > PLATINUM > GOLD > SILVER > BRONZE > UNRANKED (내림차순)
         query = query
-            .order('tier', { ascending: true })  // 기본 정렬 후
-            .order('golden_ratio', { ascending: false });  // Golden Ratio로 2차 정렬
+            .order('tier', { ascending: true })
+            .order('golden_ratio', { ascending: false });
+    } else if (sort === 'tier_asc') {
+        // Tier 순서: BRONZE > SILVER > GOLD > PLATINUM > DIAMOND (오름차순)
+        query = query
+            .order('tier', { ascending: false })
+            .order('golden_ratio', { ascending: true });
     } else if (sort === 'opp_desc') {
         // "Empty house" = Low Docs + High Search.
         // Golden Ratio = Search / Docs.

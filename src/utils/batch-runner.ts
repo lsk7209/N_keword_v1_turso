@@ -43,20 +43,20 @@ export async function runMiningBatch() {
                     if (viewDocCnt > 0) {
                         ratio = (item as any).total_search_cnt / viewDocCnt;
 
-                        // 등급 산정 (문서수 기반 + Golden Ratio)
+                        // 등급 산정: 1~5등급 (1등급이 최고)
                         if (viewDocCnt <= 100 && ratio > 5) {
-                            tier = 'DIAMOND';  // 초고효율: 문서 100개 이하 + 비율 5 이상
+                            tier = '1등급';  // 초고효율
                         } else if (ratio > 10) {
-                            tier = 'PLATINUM';
+                            tier = '2등급';
                         } else if (ratio > 5) {
-                            tier = 'GOLD';
+                            tier = '3등급';
                         } else if (ratio > 1) {
-                            tier = 'SILVER';
+                            tier = '4등급';
                         } else {
-                            tier = 'BRONZE';
+                            tier = '5등급';
                         }
                     } else if ((item as any).total_search_cnt > 0) {
-                        tier = 'DIAMOND';  // 경쟁 없음 = 최고!
+                        tier = '1등급';  // 경쟁 없음 = 최고!
                         ratio = 99.99;
                     }
 
