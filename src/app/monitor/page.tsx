@@ -45,8 +45,8 @@ export default async function MonitorPage() {
 
     try {
         // Use Service Role Key if available, otherwise fallback to Anon Key
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+        const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co').trim();
+        const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder').trim();
 
         const adminDb = createClient(supabaseUrl, supabaseKey);
 
@@ -90,7 +90,7 @@ export default async function MonitorPage() {
                     <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
                     <h1 className="text-xl font-bold">오류 발생</h1>
                     <p className="text-zinc-500 break-words">{errorMsg}</p>
-                    <p className="text-sm text-zinc-400">Vercel 환경변수(SUPABASE_SERVICE_ROLE_KEY)를 확인해주세요.</p>
+                    <p className="text-sm text-zinc-400">Vercel 환경변수(SUPABASE_SERVICE_ROLE_KEY 또는 NEXT_PUBLIC_SUPABASE_URL)를 확인해주세요.</p>
                     <Link href="/" className="inline-block mt-4 px-4 py-2 bg-zinc-900 text-white rounded-lg">홈으로 이동</Link>
                 </div>
             </div>
