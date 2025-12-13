@@ -110,8 +110,28 @@ export async function runMiningBatch() {
         const seed = seeds[0];
         console.log(`[Batch] Mode: EXPAND (Seed: ${seed.keyword})`);
 
-        const result = await processSeedKeyword(seed.keyword, 20); // 20 docs immediate
+        // Optimistic lock: mark as expanded to prevent concurrent reuse
+        const { error: lockError } = await adminDb
+            .from('keywords')
+            .update({ is_expanded: true })
+            .eq('id', seed.id)
+            .eq('is_expanded', false);
 
+        if (lockError) {
+            console.error('Seed lock error:', lockError);
+            throw lockError;
+        }
+
+        let result;
+        try {
+            result = await processSeedKeyword(seed.keyword, 20); // 20 docs immediate
+        } catch (e) {
+            // Rollback the lock so the seed can be retried later
+            await adminDb.from('keywords').update({ is_expanded: false }).eq('id', seed.id);
+            throw e;
+        }
+
+        // Ensure persisted as expanded (idempotent)
         await adminDb.from('keywords').update({ is_expanded: true }).eq('id', seed.id);
 
         return {
