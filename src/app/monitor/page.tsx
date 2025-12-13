@@ -1,6 +1,5 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { getServiceSupabase } from '@/utils/supabase';
 import { Activity, Database, Layers, Search, TrendingUp, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -45,7 +44,11 @@ export default async function MonitorPage() {
     let errorMsg = '';
 
     try {
-        const adminDb = getServiceSupabase();
+        // Use Service Role Key if available, otherwise fallback to Anon Key
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+        const adminDb = createClient(supabaseUrl, supabaseKey);
 
         // 1. Fetch Stats in parallel
         const [
