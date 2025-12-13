@@ -112,6 +112,12 @@ export default function KeywordList({ sort }: { sort: string }) {
                     {/* Header */}
                     <div className="flex items-center bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 text-[10px] sm:text-xs sticky top-0 z-20">
                         <HeaderCell label="키워드" width={colWidths.keyword} align="left" />
+                        <HeaderCell label="블로그" width={colWidths.doc} />
+                        <HeaderCell label="카페" width={colWidths.doc} />
+                        <HeaderCell label="웹" width={colWidths.doc} />
+                        <HeaderCell label="뉴스" width={colWidths.doc} />
+                        <HeaderCell label="비율" width={colWidths.ratio} />
+                        <HeaderCell label="등급" width={colWidths.tier} align="center" />
                         <HeaderCell label="PC 검색" width={colWidths.search} />
                         <HeaderCell label="MO 검색" width={colWidths.search} />
                         <HeaderCell label="PC 클릭" width={colWidths.click} />
@@ -120,12 +126,6 @@ export default function KeywordList({ sort }: { sort: string }) {
                         <HeaderCell label="MO CTR" width={colWidths.ctr} />
                         <HeaderCell label="광고수" width={colWidths.comp} />
                         <HeaderCell label="경쟁" width={colWidths.comp} />
-                        <HeaderCell label="블로그" width={colWidths.doc} />
-                        <HeaderCell label="카페" width={colWidths.doc} />
-                        <HeaderCell label="웹" width={colWidths.doc} />
-                        <HeaderCell label="뉴스" width={colWidths.doc} />
-                        <HeaderCell label="비율" width={colWidths.ratio} />
-                        <HeaderCell label="등급" width={colWidths.tier} align="center" />
                     </div>
 
                     {/* Virtual List */}
@@ -157,14 +157,6 @@ export default function KeywordList({ sort }: { sort: string }) {
                                     ) : (
                                         <>
                                             <DataCell value={post.keyword} width={colWidths.keyword} align="left" className="font-medium text-zinc-900 dark:text-zinc-100" title={post.keyword} />
-                                            <DataCell value={post.pc_search_cnt?.toLocaleString()} width={colWidths.search} />
-                                            <DataCell value={post.mo_search_cnt?.toLocaleString()} width={colWidths.search} />
-                                            <DataCell value={post.pc_click_cnt?.toLocaleString()} width={colWidths.click} />
-                                            <DataCell value={post.mo_click_cnt?.toLocaleString()} width={colWidths.click} />
-                                            <DataCell value={`${post.pc_ctr?.toFixed(2)}%`} width={colWidths.ctr} />
-                                            <DataCell value={`${post.mo_ctr?.toFixed(2)}%`} width={colWidths.ctr} />
-                                            <DataCell value={post.pl_avg_depth} width={colWidths.comp} title="평균 광고 노출 수" />
-                                            <DataCell value={post.comp_idx} width={colWidths.comp} title="광고 경쟁 정도" />
                                             <DataCell value={post.blog_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                             <DataCell value={post.cafe_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                             <DataCell value={post.web_doc_cnt?.toLocaleString()} width={colWidths.doc} />
@@ -179,6 +171,14 @@ export default function KeywordList({ sort }: { sort: string }) {
                                                     {post.tier}
                                                 </span>
                                             </div>
+                                            <DataCell value={post.pc_search_cnt?.toLocaleString()} width={colWidths.search} />
+                                            <DataCell value={post.mo_search_cnt?.toLocaleString()} width={colWidths.search} />
+                                            <DataCell value={post.pc_click_cnt?.toLocaleString()} width={colWidths.click} />
+                                            <DataCell value={post.mo_click_cnt?.toLocaleString()} width={colWidths.click} />
+                                            <DataCell value={`${post.pc_ctr?.toFixed(2)}%`} width={colWidths.ctr} />
+                                            <DataCell value={`${post.mo_ctr?.toFixed(2)}%`} width={colWidths.ctr} />
+                                            <DataCell value={post.pl_avg_depth} width={colWidths.comp} title="평균 광고 노출 수" />
+                                            <DataCell value={post.comp_idx} width={colWidths.comp} title="광고 경쟁 정도" />
                                         </>
                                     )}
                                 </div>
