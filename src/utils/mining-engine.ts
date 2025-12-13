@@ -148,7 +148,8 @@ export async function processSeedKeyword(seedKeyword: string, limitDocCount = 0,
     if (rowsToInsert.length > 0) {
         const { error: insertError } = await adminDb
             .from('keywords')
-            .upsert(rowsToInsert, { onConflict: 'keyword', returning: 'minimal' });
+            .upsert(rowsToInsert, { onConflict: 'keyword' })
+            .select('id');
 
         if (insertError) {
             console.error('DB Upsert Error (Complete):', insertError);
@@ -161,7 +162,8 @@ export async function processSeedKeyword(seedKeyword: string, limitDocCount = 0,
     if (rowsDeferred.length > 0) {
         const { error: deferredError } = await adminDb
             .from('keywords')
-            .upsert(rowsDeferred, { onConflict: 'keyword', ignoreDuplicates: true, returning: 'minimal' });
+            .upsert(rowsDeferred, { onConflict: 'keyword', ignoreDuplicates: true })
+            .select('id');
 
         if (deferredError) {
             console.error('DB Upsert Error (Deferred):', deferredError);
