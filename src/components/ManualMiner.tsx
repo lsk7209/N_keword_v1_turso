@@ -119,26 +119,28 @@ export default function ManualMiner() {
                     </div>
 
                     <div className="max-h-96 overflow-y-auto border border-zinc-200 dark:border-zinc-700 rounded-lg">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-zinc-50 dark:bg-zinc-800 text-zinc-500 border-b border-zinc-200 dark:border-zinc-700 sticky top-0">
-                                <tr>
-                                    <th className="px-4 py-3 font-medium">연관 키워드</th>
-                                    <th className="px-4 py-3 font-medium text-right">PC 검색량</th>
-                                    <th className="px-4 py-3 font-medium text-right">Mobile 검색량</th>
-                                    <th className="px-4 py-3 font-medium text-right">총 검색량</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
-                                {results.map((item, idx) => (
-                                    <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
-                                        <td className="px-4 py-2 font-medium">{item.keyword}</td>
-                                        <td className="px-4 py-2 text-right text-zinc-500">{item.pc_search_cnt.toLocaleString()}</td>
-                                        <td className="px-4 py-2 text-right text-zinc-500">{item.mo_search_cnt.toLocaleString()}</td>
-                                        <td className="px-4 py-2 text-right font-bold text-zinc-900 dark:text-zinc-100">{item.total_search_cnt.toLocaleString()}</td>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left whitespace-nowrap">
+                                <thead className="bg-zinc-50 dark:bg-zinc-800 text-zinc-500 border-b border-zinc-200 dark:border-zinc-700 sticky top-0">
+                                    <tr>
+                                        <th className="px-4 py-3 font-medium">연관 키워드</th>
+                                        <th className="px-4 py-3 font-medium text-right hidden sm:table-cell">PC 검색량</th>
+                                        <th className="px-4 py-3 font-medium text-right hidden sm:table-cell">Mobile 검색량</th>
+                                        <th className="px-4 py-3 font-medium text-right">총 검색량</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                                    {results.map((item, idx) => (
+                                        <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                                            <td className="px-4 py-2 font-medium">{item.keyword}</td>
+                                            <td className="px-4 py-2 text-right text-zinc-500 hidden sm:table-cell">{item.pc_search_cnt.toLocaleString()}</td>
+                                            <td className="px-4 py-2 text-right text-zinc-500 hidden sm:table-cell">{item.mo_search_cnt.toLocaleString()}</td>
+                                            <td className="px-4 py-2 text-right font-bold text-zinc-900 dark:text-zinc-100">{item.total_search_cnt.toLocaleString()}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
