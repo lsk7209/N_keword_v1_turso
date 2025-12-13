@@ -107,7 +107,9 @@ export async function processSeedKeyword(seedKeyword: string, limitDocCount = 0,
     const rowsToInsert = processedResults.map((r: any) => {
         // Golden Ratio Logic Update:
         // Use (Blog + Cafe) count as the denominator (Competition).
-        const viewDocCnt = (r.blog || 0) + (r.cafe || 0);
+        // Golden Ratio: 검색량 / (블로그 + 카페 + 웹 문서수)
+        // 뉴스는 제외 (SEO 경쟁 지표로 부적합)
+        const viewDocCnt = (r.blog || 0) + (r.cafe || 0) + (r.web || 0);
 
         let ratio = 0;
         let tier = 'UNRANKED';

@@ -34,7 +34,9 @@ export async function runMiningBatch() {
                 try {
                     const counts = await fetchDocumentCount((item as any).keyword);
 
-                    const viewDocCnt = (counts.blog || 0) + (counts.cafe || 0);
+                    // Golden Ratio: 검색량 / (블로그 + 카페 + 웹 문서수)
+                    // 뉴스는 제외 (SEO 경쟁 지표로 부적합)
+                    const viewDocCnt = (counts.blog || 0) + (counts.cafe || 0) + (counts.web || 0);
                     let ratio = 0;
                     let tier = 'UNRANKED';
 
