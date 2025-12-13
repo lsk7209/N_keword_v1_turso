@@ -34,9 +34,9 @@ export async function processSeedKeyword(
     // 2. Map & Basic Parse
     const candidates = relatedList.map((item: any) => {
         const parseCnt = (val: string | number) => {
-            if (typeof val === 'number') return val;
             if (typeof val === 'string' && val.includes('<')) return 5;
-            return parseInt(String(val).replace(/,/g, '')) || 0;
+            const num = typeof val === 'number' ? val : Number(String(val).replace(/,/g, ''));
+            return isNaN(num) ? 0 : Math.round(num);
         };
 
         const parseFloat = (val: string | number) => {
