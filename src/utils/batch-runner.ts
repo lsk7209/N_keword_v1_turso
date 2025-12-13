@@ -5,12 +5,8 @@ import { fetchDocumentCount } from '@/utils/naver-api';
 
 export async function runMiningBatch() {
     const adminDb = getServiceSupabase();
-    const logs: string[] = [];
+    // const logs: string[] = []; // Logs are handled effectively by Vercel logs
 
-    const log = (msg: string) => {
-        console.log(msg);
-        logs.push(msg);
-    };
 
     try {
         // 1. FILL_DOCS Mode
@@ -24,7 +20,7 @@ export async function runMiningBatch() {
         if (missingError) throw missingError;
 
         if (missingDocs && missingDocs.length > 0) {
-            log(`[Batch] Mode: FILL_DOCS (${missingDocs.length} items)`);
+            console.log(`[Batch] Mode: FILL_DOCS (${missingDocs.length} items)`);
             const results: string[] = [];
             let failedCount = 0;
             const errors: string[] = [];
@@ -88,8 +84,7 @@ export async function runMiningBatch() {
                 processed: results.length,
                 failed: failedCount,
                 errors: errors.slice(0, 5), // Return top 5 errors
-                items: results,
-                logs
+                items: results
             };
         }
 
@@ -108,13 +103,12 @@ export async function runMiningBatch() {
             return {
                 success: true,
                 mode: 'IDLE',
-                message: 'No work found',
-                logs
+                message: 'No work found'
             };
         }
 
         const seed = seeds[0];
-        log(`[Batch] Mode: EXPAND (Seed: ${seed.keyword})`);
+        console.log(`[Batch] Mode: EXPAND (Seed: ${seed.keyword})`);
 
         const result = await processSeedKeyword(seed.keyword, 20); // 20 docs immediate
 
@@ -125,16 +119,14 @@ export async function runMiningBatch() {
             mode: 'EXPAND',
             seed: seed.keyword,
             processed: result.processed,
-            saved: result.saved,
-            logs
+            saved: result.saved
         };
 
     } catch (e: any) {
         console.error('Batch Error:', e);
         return {
             success: false,
-            error: e.message,
-            logs
+            error: e.message
         };
     }
 }

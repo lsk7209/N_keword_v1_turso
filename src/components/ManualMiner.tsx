@@ -2,48 +2,21 @@
 
 import { useState } from 'react';
 import { Loader2, Pickaxe, Search, CheckCircle2 } from 'lucide-react';
-import { triggerMining } from '@/app/actions'; // Server Action
+// import { triggerMining } from '@/app/actions'; // Server Action (Admin Only)
 
 export default function ManualMiner() {
+    // 인터페이스 정의
+    interface KeywordItem {
+        keyword: string;
+        pc_search_cnt: number;
+        mo_search_cnt: number;
+        total_search_cnt: number;
+    }
+
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
-    const [results, setResults] = useState<any[]>([]);
+    const [results, setResults] = useState<KeywordItem[]>([]);
     const [error, setError] = useState('');
-
-    // System Trigger State
-    const [sysLoading, setSysLoading] = useState(false);
-    const [sysMsg, setSysMsg] = useState('');
-    const [sysErrors, setSysErrors] = useState<string[]>([]);
-
-    const handleBatchTrigger = async () => {
-        setSysLoading(true);
-        setSysMsg('');
-        setSysErrors([]);
-        try {
-            const res: any = await triggerMining();
-            if (res.success) {
-                let msg = `✅ 봇 실행 완료: ${res.mode}`;
-                if (res.mode === 'FILL_DOCS') {
-                    msg += ` (성공: ${res.processed}, 실패: ${res.failed || 0})`;
-                } else if (res.mode === 'EXPAND') {
-                    msg += ` (Seed: ${res.seed}, 저장: ${res.saved})`;
-                } else {
-                    msg += ` (${res.message})`;
-                }
-                setSysMsg(msg);
-
-                if (res.errors && res.errors.length > 0) {
-                    setSysErrors(res.errors);
-                }
-            } else {
-                setSysMsg(`❌ 실행 실패: ${res.error || '알 수 없는 오류'}`);
-            }
-        } catch (e) {
-            setSysMsg('❌ 요청 실패');
-        } finally {
-            setSysLoading(false);
-        }
-    };
 
     const handleMining = async () => {
         if (!input.trim()) return;
@@ -122,30 +95,8 @@ export default function ManualMiner() {
                         </h3>
                         <span className="text-sm text-zinc-500 flex items-center gap-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                            DB 저장 완료 (상세 분석 대기중)
-                            <button
-                                onClick={handleBatchTrigger}
-                                disabled={sysLoading}
-                                className="ml-2 px-2 py-1 text-xs bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 rounded text-zinc-600 transition-colors disabled:opacity-50"
-                            >
-                                {sysLoading ? '실행중...' : '⚡ 봇 즉시 실행'}
-                            </button>
+                            DB 저장 완료
                         </span>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-1">
-                        {sysMsg && (
-                            <div className={`text-sm font-medium px-1 ${sysMsg.startsWith('❌') ? 'text-red-600' : 'text-blue-600'}`}>
-                                {sysMsg}
-                            </div>
-                        )}
-                        {sysErrors.length > 0 && (
-                            <div className="text-xs text-red-500 bg-red-50 p-2 rounded max-w-md text-right">
-                                <div className="font-bold mb-1">다음 에러로 일부 실패:</div>
-                                {sysErrors.map((e, i) => <div key={i}>• {e}</div>)}
-                                <div className="mt-1 text-zinc-400">Vercel 환경변수(API키)를 확인해주세요.</div>
-                            </div>
-                        )}
                     </div>
 
                     <div className="max-h-96 overflow-y-auto border border-zinc-200 dark:border-zinc-700 rounded-lg">

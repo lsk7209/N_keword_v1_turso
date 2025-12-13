@@ -46,5 +46,6 @@
 - [x] **Robust Retry Logic**: Added multi-key retry mechanisms for both Ad and Search APIs.
 - [x] **Batch Runner Utility**: Created `batch-runner.ts` to coordinate `FILL_DOCS` and `EXPAND` modes efficiently.
 - [x] **Manual Batch Trigger**: Added server action and UI button for on-demand batch execution with detailed feedback.
+- [x] **Github Cron**: Configured `.github/workflows/miner-cron.yml` to run every 10 minutes.
 - [x] **Throughput Optimization**: Increased batch limits (50 items) and prioritized processing by high search volume.
 

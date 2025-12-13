@@ -1,0 +1,18 @@
+name: Mining Cron Job
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # 매 10분마다 실행 (한국 시간 기준이 아닌 UTC 기준이므로 주의, 하지만주기는 동일)
+  workflow_dispatch: # GitHub 웹사이트에서 수동 실행 가능하도록 설정
+
+jobs:
+  execute-mining:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Mining API
+        run: |
+          echo "Triggering mining batch at ${{ secrets.APP_URL }}..."
+          curl -X GET ${{ secrets.APP_URL }}/api/miner/execute \
+          -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
+          --fail \
+          --max-time 60
