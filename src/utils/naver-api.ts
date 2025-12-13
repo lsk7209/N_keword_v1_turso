@@ -130,7 +130,7 @@ export async function fetchDocumentCount(keyword: string) {
                     'X-Naver-Client-Secret': clientSecret
                 };
 
-                const url = `https://openapi.naver.com/v1/search/${type}?query=${encodeURIComponent(keyword)}&display=1&sort=sim`;
+                const url = `https://openapi.naver.com/v1/search/${type}.json?query=${encodeURIComponent(keyword)}&display=1&sort=sim`;
 
                 const res = await fetch(url, { headers });
 

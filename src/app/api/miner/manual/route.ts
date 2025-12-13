@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
                 // For manual collection, we want to fetch document counts as well.
                 // Limit to 30 to avoid timeout (Vercel 60s limit)
                 // 100 was too slow - each doc count takes ~500ms
-                const result = await processSeedKeyword(seed, 30, false);
+                const result = await processSeedKeyword(seed, 30, false, 0);
                 results.push({
                     seed,
                     success: true,

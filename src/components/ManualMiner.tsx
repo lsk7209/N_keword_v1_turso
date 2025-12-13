@@ -62,7 +62,13 @@ export default function ManualMiner() {
             setResults(allItems);
 
             if (allItems.length === 0) {
-                setError('결과가 없습니다.');
+                // Check for errors
+                const failures = json.results.filter((r: any) => !r.success);
+                if (failures.length > 0) {
+                    setError(`수집 실패: ${failures[0].error}`);
+                } else {
+                    setError('결과가 없습니다.');
+                }
             }
 
         } catch (err: any) {
