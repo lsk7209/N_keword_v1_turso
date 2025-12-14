@@ -77,9 +77,9 @@ export async function runMiningBatch() {
             };
         }
 
-        // === STEP 2: FILL_DOCS (120개 - 고속 처리) ===
-        // Increased to 120 with 9 keys and optimized API calls (3 per item).
-        const BATCH_SIZE = 120;
+        // === STEP 2: FILL_DOCS (100개 - 고속 처리) ===
+        // News collection included. 100 items * 4 calls = 400 calls total.
+        const BATCH_SIZE = 100;
         const { data: docsToFill, error: docsError } = await adminDb
             .from('keywords')
             .select('id, keyword, total_search_cnt')
@@ -88,12 +88,12 @@ export async function runMiningBatch() {
             .limit(BATCH_SIZE) as { data: any[] | null, error: any };
 
         if (!docsError && docsToFill && docsToFill.length > 0) {
-            console.log(`[Batch] FILL_DOCS: Processing ${docsToFill.length} items (Chunks of 30)`);
+            console.log(`[Batch] FILL_DOCS: Processing ${docsToFill.length} items (Chunks of 25)`);
 
             // 1. Fetch data in chunks to prevent 429 Storm
-            // We have 9 keys. 30 concurrent items * 3 calls = 90 calls.
-            // 90 calls / 9 keys = 10 req/key. Safe burst.
-            const CHUNK_SIZE = 30;
+            // We have 9 keys. 25 items * 4 calls = 100 calls.
+            // 100 calls / 9 keys ≈ 11 req/key. Safe burst with latency.
+            const CHUNK_SIZE = 25;
             let processedResults: any[] = [];
 
             for (let i = 0; i < docsToFill.length; i += CHUNK_SIZE) {
