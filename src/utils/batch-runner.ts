@@ -17,115 +17,159 @@ export async function runMiningBatch() {
         // 1. FILL_DOCS (소량 - 10개)
         // 2. EXPAND (1개 시드)
 
-        // === STEP 1: FILL_DOCS (30개로 증가 - 공격적 모드) ===
+        // === STEP 1: FILL_DOCS (90개로 증가 - 대량 병렬 처리 + Bulk Update) ===
+        // Optimized: Parallel processing + Single DB Round-trip
+        const BATCH_SIZE = 90;
         const { data: docsToFill, error: docsError } = await adminDb
             .from('keywords')
             .select('id, keyword, total_search_cnt')
             .is('total_doc_cnt', null)
             .order('total_search_cnt', { ascending: false })
-            .limit(30) as { data: any[] | null, error: any };  // 10 → 30 증가
+            .limit(BATCH_SIZE) as { data: any[] | null, error: any };
 
         if (!docsError && docsToFill && docsToFill.length > 0) {
-            console.log(`[Batch] FILL_DOCS: Processing ${docsToFill.length} items`);
-            const processed: string[] = [];
-            const errors: string[] = [];
+            console.log(`[Batch] FILL_DOCS: Processing ${docsToFill.length} items (Chunks of 15)`);
 
-            for (const item of docsToFill) {
-                try {
-                    const counts = await fetchDocumentCount((item as any).keyword);
+            // 1. Fetch data in chunks to prevent 429 Storm
+            // We have ~9 keys. 15 concurrent requests is safe (approx 1.6 req/key).
+            // Total 90 items = 6 chunks.
+            const CHUNK_SIZE = 15;
+            let processedResults: any[] = [];
 
-                    // Golden Ratio: 검색량 / (블로그 + 카페 + 웹 문서수)
-                    // 뉴스는 제외 (SEO 경쟁 지표로 부적합)
-                    const viewDocCnt = (counts.blog || 0) + (counts.cafe || 0) + (counts.web || 0);
-                    let ratio = 0;
-                    let tier = 'UNRANKED';
-
-                    if (viewDocCnt > 0) {
-                        ratio = (item as any).total_search_cnt / viewDocCnt;
-
-                        // 등급 산정: 1~5등급 (1등급이 최고)
-                        if (viewDocCnt <= 100 && ratio > 5) {
-                            tier = '1등급';  // 초고효율
-                        } else if (ratio > 10) {
-                            tier = '2등급';
-                        } else if (ratio > 5) {
-                            tier = '3등급';
-                        } else if (ratio > 1) {
-                            tier = '4등급';
-                        } else {
-                            tier = '5등급';
+            for (let i = 0; i < docsToFill.length; i += CHUNK_SIZE) {
+                const chunk = docsToFill.slice(i, i + CHUNK_SIZE);
+                const chunkResults = await Promise.all(
+                    chunk.map(async (item) => {
+                        try {
+                            const counts = await fetchDocumentCount(item.keyword);
+                            return { status: 'fulfilled', item, counts };
+                        } catch (e: any) {
+                            console.error(`[Batch] Error filling ${item.keyword}: ${e.message}`);
+                            return { status: 'rejected', keyword: item.keyword, error: e.message };
                         }
-                    } else if ((item as any).total_search_cnt > 0) {
-                        tier = '1등급';  // 경쟁 없음 = 최고!
-                        ratio = 99.99;
-                    }
-
-                    await (adminDb as any)
-                        .from('keywords')
-                        .update({
-                            total_doc_cnt: counts.total,
-                            blog_doc_cnt: counts.blog,
-                            cafe_doc_cnt: counts.cafe,
-                            web_doc_cnt: counts.web,
-                            news_doc_cnt: counts.news,
-                            golden_ratio: ratio,
-                            tier: tier,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('id', (item as any).id);
-
-                    processed.push((item as any).keyword);
-                } catch (e: any) {
-                    errors.push(`${(item as any).keyword}: ${e.message}`);
-                }
+                    })
+                );
+                processedResults = [...processedResults, ...chunkResults];
             }
 
-            results.fillDocs = {
-                processed: processed.length,
-                failed: errors.length,
-                errors: errors.slice(0, 3)
-            };
+            const succeeded = processedResults.filter(r => r.status === 'fulfilled');
+            const failed = processedResults.filter(r => r.status === 'rejected');
+
+            // 2. Prepare Bulk Upsert Data
+            const updates = succeeded.map((res: any) => {
+                const { item, counts } = res;
+                const viewDocCnt = (counts.blog || 0) + (counts.cafe || 0) + (counts.web || 0);
+                let ratio = 0;
+                let tier = 'UNRANKED';
+
+                if (viewDocCnt > 0) {
+                    ratio = item.total_search_cnt / viewDocCnt;
+                    if (viewDocCnt <= 100 && ratio > 5) tier = '1등급';
+                    else if (ratio > 10) tier = '2등급';
+                    else if (ratio > 5) tier = '3등급';
+                    else if (ratio > 1) tier = '4등급';
+                    else tier = '5등급';
+                } else if (item.total_search_cnt > 0) {
+                    tier = '1등급';
+                    ratio = 99.99;
+                }
+
+                return {
+                    id: item.id,
+                    keyword: item.keyword,
+                    total_search_cnt: item.total_search_cnt, // Include to match schema if needed, though not updating
+                    total_doc_cnt: counts.total,
+                    blog_doc_cnt: counts.blog,
+                    cafe_doc_cnt: counts.cafe,
+                    web_doc_cnt: counts.web,
+                    news_doc_cnt: counts.news,
+                    golden_ratio: ratio,
+                    tier: tier,
+                    updated_at: new Date().toISOString()
+                };
+            });
+
+            // 3. Execute Single Bulk Update
+            if (updates.length > 0) {
+                const { error: upsertError } = await (adminDb as any)
+                    .from('keywords')
+                    .upsert(updates, { onConflict: 'id' });
+
+                if (upsertError) {
+                    console.error('[Batch] Bulk Upsert Error:', upsertError);
+                    // Consider them failed if DB save fails
+                    results.fillDocs = {
+                        processed: 0,
+                        failed: docsToFill.length,
+                        errors: [`Bulk Save Failed: ${upsertError.message}`]
+                    };
+                } else {
+                    results.fillDocs = {
+                        processed: updates.length,
+                        failed: failed.length,
+                        errors: failed.slice(0, 3).map((f: any) => `${f.keyword}: ${f.error}`)
+                    };
+                }
+            } else {
+                results.fillDocs = {
+                    processed: 0,
+                    failed: failed.length,
+                    errors: failed.slice(0, 3).map((f: any) => `${f.keyword}: ${f.error}`)
+                };
+            }
         }
 
-        // === STEP 2: EXPAND (1개 시드) ===
+        // === STEP 2: EXPAND (5개 시드 - 초고속 확장 모드) ===
+        // Strategy: Pure Discovery. Fetch 5 seeds, skip doc count (defer to FILL_DOCS).
+        // This maximizes "Total Keywords" growth.
         const { data: seeds, error: seedError } = await adminDb
             .from('keywords')
             .select('id, keyword, total_search_cnt')
             .eq('is_expanded', false)
-            .gte('total_search_cnt', 1000)
+            .gte('total_search_cnt', 100)
             .order('total_search_cnt', { ascending: false })
-            .limit(1) as { data: any[] | null, error: any };
+            .limit(5) as { data: any[] | null, error: any }; // Process 5 seeds at once
 
         if (!seedError && seeds && seeds.length > 0) {
-            const seed = seeds[0];
-            console.log(`[Batch] EXPAND: Seed = ${seed.keyword}`);
+            console.log(`[Batch] EXPAND: Processing ${seeds.length} seeds (Discovery Mode)`);
 
-            // Optimistic lock
-            const { error: lockError } = await (adminDb as any)
-                .from('keywords')
-                .update({ is_expanded: true })
-                .eq('id', seed.id)
-                .eq('is_expanded', false);
+            const expandResults = await Promise.all(
+                seeds.map(async (seed) => {
+                    // Optimistic lock
+                    const { error: lockError } = await (adminDb as any)
+                        .from('keywords')
+                        .update({ is_expanded: true })
+                        .eq('id', seed.id)
+                        .eq('is_expanded', false);
 
-            if (!lockError) {
-                try {
-                    const expandResult = await processSeedKeyword(seed.keyword, 10); // 문서 수 10개 (기존: 5개)
-                    await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
+                    if (lockError) return { status: 'skipped', seed: seed.keyword };
 
-                    results.expand = {
-                        seed: seed.keyword,
-                        processed: expandResult.processed,
-                        saved: expandResult.saved
-                    };
-                } catch (e: any) {
-                    // Rollback
-                    await (adminDb as any).from('keywords').update({ is_expanded: false }).eq('id', seed.id);
-                    results.expand = {
-                        seed: seed.keyword,
-                        error: e.message
-                    };
-                }
-            }
+                    try {
+                        // limitDocCount=0, skipDocFetch=true, minVolume=100
+                        // Only fetches related keywords and saves them. No search API usage here.
+                        const res = await processSeedKeyword(seed.keyword, 0, true, 100);
+
+                        // Mark as fully expanded
+                        await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
+
+                        return { status: 'fulfilled', seed: seed.keyword, saved: res.saved };
+                    } catch (e: any) {
+                        // Rollback
+                        await (adminDb as any).from('keywords').update({ is_expanded: false }).eq('id', seed.id);
+                        return { status: 'rejected', seed: seed.keyword, error: e.message };
+                    }
+                })
+            );
+
+            const succeeded = expandResults.filter(r => r.status === 'fulfilled');
+
+            results.expand = {
+                processedSeeds: seeds.length,
+                totalSaved: succeeded.reduce((sum, r: any) => sum + (r.saved || 0), 0),
+                details: expandResults.map((r: any) =>
+                    r.status === 'fulfilled' ? `${r.seed} (+${r.saved})` : `${r.seed} (${r.status})`
+                )
+            };
         }
 
         // 결과 반환

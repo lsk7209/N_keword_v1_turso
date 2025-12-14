@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/utils/supabase';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 60; // Cache for 60 seconds
+
 
 // Helper for approximate count if needed, but Supabase count('exact') is okay for < 1M usually.
 // Or restrict count to filtered set.

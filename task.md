@@ -53,3 +53,8 @@
 ## 9. UI Refinements
 - [x] **Reorder Data Columns**: Updated attribute order in KeywordList as requested (Keyword -> Total Search -> Docs -> Ratio -> Tier -> Search/Click/CTR/Comp).
 
+## 10. Code Optimization
+- [x] **API Response Caching**: Applied `revalidate = 60` to `/api/keywords`.
+- [x] **Parallel Mining**: Optimized `mining-engine.ts` to process document lookups with full concurrency.
+
+

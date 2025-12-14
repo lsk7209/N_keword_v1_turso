@@ -98,24 +98,28 @@ export async function processSeedKeyword(
     }
 
     // 5. Fetch Document Counts (Parallel Batches) for candidatesToProcess
-    const processedResults = [];
+    // Optimized: Run ALL chunks in parallel instead of sequentially
     const BATCH_SIZE = 5;
-
+    const allChunks = [];
     for (let i = 0; i < candidatesToProcess.length; i += BATCH_SIZE) {
-        const chunk = candidatesToProcess.slice(i, i + BATCH_SIZE);
-        const promises = chunk.map(async (cand: any) => {
-            try {
-                const counts = await fetchDocumentCount(cand.originalKeyword);
-                return { ...cand, ...counts };
-            } catch (e) {
-                console.error(`Failed doc count for ${cand.originalKeyword}:`, e);
-                return { ...cand, total: null }; // Mark as failed doc count
-            }
-        });
-
-        const chunkResults = await Promise.all(promises);
-        processedResults.push(...chunkResults);
+        allChunks.push(candidatesToProcess.slice(i, i + BATCH_SIZE));
     }
+
+    const allChunkResults = await Promise.all(
+        allChunks.map(chunk =>
+            Promise.all(chunk.map(async (cand: any) => {
+                try {
+                    const counts = await fetchDocumentCount(cand.originalKeyword);
+                    return { ...cand, ...counts };
+                } catch (e) {
+                    console.error(`Failed doc count for ${cand.originalKeyword}:`, e);
+                    return { ...cand, total: null }; // Mark as failed doc count
+                }
+            }))
+        )
+    );
+
+    const processedResults = allChunkResults.flat();
 
     // 6. Bulk Upsert (Processed)
     const rowsToInsert = processedResults.map((r: any) => {
