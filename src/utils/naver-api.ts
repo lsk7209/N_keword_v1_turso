@@ -161,19 +161,19 @@ export async function fetchDocumentCount(keyword: string) {
 
     try {
         // Parallel execution for maximum speed
+        // Optimized: Removed 'news' to save 25% calls (News is not used for Golden Tier)
         const results = await Promise.all([
             fetchType('blog'),
             fetchType('cafearticle'),
-            fetchType('webkr'),
-            fetchType('news')
+            fetchType('webkr')
         ]);
 
         return {
             blog: results[0],
             cafe: results[1],
             web: results[2],
-            news: results[3],
-            total: results[0] + results[1] + results[2] + results[3]
+            news: 0,
+            total: results[0] + results[1] + results[2]
         };
     } catch (e) {
         throw e;
