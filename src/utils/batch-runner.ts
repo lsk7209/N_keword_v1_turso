@@ -14,12 +14,72 @@ export async function runMiningBatch() {
         };
 
         // 🎯 전략: 한 번 실행에 두 작업 모두 수행
-        // 1. FILL_DOCS (소량 - 10개)
-        // 2. EXPAND (1개 시드)
+        // 순서 변경: EXPAND (신규 발굴) -> FILL_DOCS (기존 보강)
+        // 이유: 시간 제한(Timeout) 시에도 신규 키워드는 확실히 남기기 위함.
 
-        // === STEP 1: FILL_DOCS (90개로 증가 - 대량 병렬 처리 + Bulk Update) ===
-        // Optimized: Parallel processing + Single DB Round-trip
-        const BATCH_SIZE = 90;
+        // === STEP 1: EXPAND (5개 시드 - 초고속 확장 모드) ===
+        // Strategy: Run Discovery FIRST.
+        // Fetch Top 50 unexpanded (high volume), Pick 5 RANDOM to avoid "bad seed" blocking or clustering.
+        const { data: seedsData, error: seedError } = await adminDb
+            .from('keywords')
+            .select('id, keyword, total_search_cnt')
+            .eq('is_expanded', false)
+            .gte('total_search_cnt', 100)
+            .order('total_search_cnt', { ascending: false })
+            .limit(50) as { data: any[] | null, error: any };
+
+        if (!seedError && seedsData && seedsData.length > 0) {
+            // Shuffle and pick 5 keys to avoid "Head Keyword" loops
+            const shuffled = seedsData.sort(() => 0.5 - Math.random());
+            const seeds = shuffled.slice(0, 5);
+
+            console.log(`[Batch] EXPAND: Processing ${seeds.length} seeds (Random selection from Top ${seedsData.length})`);
+
+            const expandResults = await Promise.all(
+                seeds.map(async (seed) => {
+                    // Optimistic lock
+                    const { error: lockError } = await (adminDb as any)
+                        .from('keywords')
+                        .update({ is_expanded: true })
+                        .eq('id', seed.id)
+                        .eq('is_expanded', false);
+
+                    if (lockError) return { status: 'skipped', seed: seed.keyword };
+
+                    try {
+                        // limitDocCount=0, skipDocFetch=true, minVolume=100
+                        // Only fetches related keywords and saves them. No search API usage here.
+                        const res = await processSeedKeyword(seed.keyword, 0, true, 100);
+
+                        // Mark as fully expanded
+                        await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
+
+                        return { status: 'fulfilled', seed: seed.keyword, saved: res.saved };
+                    } catch (e: any) {
+                        // Error handling: Mark as expanded anyway to prevent "Bad Seed" loop
+                        // If a seed fails (API error, invalid keyword), we shouldn't retry it infinitely.
+                        console.error(`[Batch] Seed Failed: ${seed.keyword} - ${e.message}`);
+                        await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
+
+                        return { status: 'rejected', seed: seed.keyword, error: e.message };
+                    }
+                })
+            );
+
+            const succeeded = expandResults.filter(r => r.status === 'fulfilled');
+
+            results.expand = {
+                processedSeeds: seeds.length,
+                totalSaved: succeeded.reduce((sum, r: any) => (sum + (r.saved || 0)), 0),
+                details: expandResults.map((r: any) =>
+                    r.status === 'fulfilled' ? `${r.seed} (+${r.saved})` : `${r.seed} (${r.status})`
+                )
+            };
+        }
+
+        // === STEP 2: FILL_DOCS (60개 - 안정적인 처리) ===
+        // Reduced to 60 to prevent timeout after EXPAND.
+        const BATCH_SIZE = 60;
         const { data: docsToFill, error: docsError } = await adminDb
             .from('keywords')
             .select('id, keyword, total_search_cnt')
@@ -32,7 +92,7 @@ export async function runMiningBatch() {
 
             // 1. Fetch data in chunks to prevent 429 Storm
             // We have ~9 keys. 15 concurrent requests is safe (approx 1.6 req/key).
-            // Total 90 items = 6 chunks.
+            // Total 60 items = 4 chunks.
             const CHUNK_SIZE = 15;
             let processedResults: any[] = [];
 
@@ -117,59 +177,6 @@ export async function runMiningBatch() {
                     errors: failed.slice(0, 3).map((f: any) => `${f.keyword}: ${f.error}`)
                 };
             }
-        }
-
-        // === STEP 2: EXPAND (5개 시드 - 초고속 확장 모드) ===
-        // Strategy: Pure Discovery. Fetch 5 seeds, skip doc count (defer to FILL_DOCS).
-        // This maximizes "Total Keywords" growth.
-        const { data: seeds, error: seedError } = await adminDb
-            .from('keywords')
-            .select('id, keyword, total_search_cnt')
-            .eq('is_expanded', false)
-            .gte('total_search_cnt', 100)
-            .order('total_search_cnt', { ascending: false })
-            .limit(5) as { data: any[] | null, error: any }; // Process 5 seeds at once
-
-        if (!seedError && seeds && seeds.length > 0) {
-            console.log(`[Batch] EXPAND: Processing ${seeds.length} seeds (Discovery Mode)`);
-
-            const expandResults = await Promise.all(
-                seeds.map(async (seed) => {
-                    // Optimistic lock
-                    const { error: lockError } = await (adminDb as any)
-                        .from('keywords')
-                        .update({ is_expanded: true })
-                        .eq('id', seed.id)
-                        .eq('is_expanded', false);
-
-                    if (lockError) return { status: 'skipped', seed: seed.keyword };
-
-                    try {
-                        // limitDocCount=0, skipDocFetch=true, minVolume=100
-                        // Only fetches related keywords and saves them. No search API usage here.
-                        const res = await processSeedKeyword(seed.keyword, 0, true, 100);
-
-                        // Mark as fully expanded
-                        await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
-
-                        return { status: 'fulfilled', seed: seed.keyword, saved: res.saved };
-                    } catch (e: any) {
-                        // Rollback
-                        await (adminDb as any).from('keywords').update({ is_expanded: false }).eq('id', seed.id);
-                        return { status: 'rejected', seed: seed.keyword, error: e.message };
-                    }
-                })
-            );
-
-            const succeeded = expandResults.filter(r => r.status === 'fulfilled');
-
-            results.expand = {
-                processedSeeds: seeds.length,
-                totalSaved: succeeded.reduce((sum, r: any) => sum + (r.saved || 0), 0),
-                details: expandResults.map((r: any) =>
-                    r.status === 'fulfilled' ? `${r.seed} (+${r.saved})` : `${r.seed} (${r.status})`
-                )
-            };
         }
 
         // 결과 반환
