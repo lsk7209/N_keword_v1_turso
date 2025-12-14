@@ -33,8 +33,24 @@ export async function GET(req: NextRequest) {
             .eq('key', 'mining_mode')
             .single();
 
-        const mode = (setting as any)?.value; // "TURBO" or "NORMAL" (JSONB string usually includes quotes if not parsed, Supabase returns parsed JSON for JSONB?)
-        // Supabase JS library parses JSONB automatically. So "TURBO" string.
+        // JSONB 값 파싱 (getMiningMode와 동일한 로직)
+        let mode: 'NORMAL' | 'TURBO' = 'NORMAL';
+        if (setting) {
+            const rawValue = (setting as any)?.value;
+            if (typeof rawValue === 'string') {
+                mode = rawValue.replace(/^"|"$/g, '').toUpperCase() as 'NORMAL' | 'TURBO';
+            } else {
+                mode = String(rawValue).toUpperCase() as 'NORMAL' | 'TURBO';
+            }
+            if (mode !== 'NORMAL' && mode !== 'TURBO') {
+                mode = 'NORMAL';
+            }
+        }
+
+        console.log(`[Miner] Current mode: ${mode}, Result:`, { 
+            expand: result.expand?.totalSaved || 0, 
+            fillDocs: result.fillDocs?.processed || 0 
+        });
 
         if (mode === 'TURBO') {
             // Check for Stop Conditions (Quota Exhaustion or System Failure)
@@ -87,9 +103,18 @@ export async function GET(req: NextRequest) {
             } catch (err) {
                 console.error('[Miner] Failed to spawn next recursion:', err);
             }
+        } else {
+            // 일반 모드: GitHub Actions가 5분마다 호출하므로 자동 수집 진행 중
+            console.log('[Miner] Normal Mode: Auto-collection via GitHub Actions (every 5 minutes)');
         }
 
-        return NextResponse.json(result);
+        return NextResponse.json({
+            ...result,
+            mode: mode,
+            info: mode === 'TURBO' 
+                ? 'Turbo Mode: Continuous background execution' 
+                : 'Normal Mode: Scheduled execution via GitHub Actions (every 5 minutes)'
+        });
     } catch (e: any) {
         console.error('[Miner] Execution Error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });

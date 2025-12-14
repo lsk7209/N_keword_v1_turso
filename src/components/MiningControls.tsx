@@ -210,9 +210,17 @@ export default function MiningControls() {
                 ))}
             </div>
 
-            <div className="text-xs text-slate-400 text-center flex items-center justify-center gap-1">
-                <CheckCircle2 size={12} />
-                <span>터보 모드는 브라우저를 닫아도 서버에서 계속 실행됩니다. (Vercel Chaining)</span>
+            <div className="text-xs text-slate-400 text-center space-y-1">
+                <div className="flex items-center justify-center gap-1">
+                    <CheckCircle2 size={12} />
+                    <span>터보 모드는 브라우저를 닫아도 서버에서 계속 실행됩니다. (Vercel Chaining)</span>
+                </div>
+                {!isTurbo && (
+                    <div className="flex items-center justify-center gap-1 text-blue-400">
+                        <CheckCircle2 size={12} />
+                        <span>일반 모드: GitHub Actions가 5분마다 자동으로 수집을 진행합니다.</span>
+                    </div>
+                )}
             </div>
         </div>
     );
