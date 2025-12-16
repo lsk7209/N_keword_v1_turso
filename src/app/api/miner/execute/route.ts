@@ -22,8 +22,35 @@ export async function GET(req: NextRequest) {
     }
 
     try {
+        // Optional runtime tuning (safe clamps happen inside runMiningBatch)
+        const taskParam = (req.nextUrl.searchParams.get('task') || 'all').toLowerCase();
+        const task = (taskParam === 'fill_docs' || taskParam === 'expand' || taskParam === 'all')
+            ? (taskParam as 'fill_docs' | 'expand' | 'all')
+            : 'all';
+
+        const fillBatch = req.nextUrl.searchParams.get('fillBatch');
+        const fillConcurrency = req.nextUrl.searchParams.get('fillConcurrency');
+        const seedCount = req.nextUrl.searchParams.get('seedCount');
+        const expandBatch = req.nextUrl.searchParams.get('expandBatch');
+        const expandConcurrency = req.nextUrl.searchParams.get('expandConcurrency');
+        const minSearchVolume = req.nextUrl.searchParams.get('minSearchVolume');
+        const maxRunMs = req.nextUrl.searchParams.get('maxRunMs');
+
+        const modeOverrideRaw = (req.nextUrl.searchParams.get('mode') || '').toUpperCase();
+        const modeOverride = (modeOverrideRaw === 'NORMAL' || modeOverrideRaw === 'TURBO') ? (modeOverrideRaw as 'NORMAL' | 'TURBO') : undefined;
+
         // 2. Execute Batch
-        const result = await runMiningBatch();
+        const result = await runMiningBatch({
+            task,
+            mode: modeOverride,
+            seedCount: seedCount ? Number(seedCount) : undefined,
+            expandBatch: expandBatch ? Number(expandBatch) : undefined,
+            expandConcurrency: expandConcurrency ? Number(expandConcurrency) : undefined,
+            fillDocsBatch: fillBatch ? Number(fillBatch) : undefined,
+            fillDocsConcurrency: fillConcurrency ? Number(fillConcurrency) : undefined,
+            minSearchVolume: minSearchVolume ? Number(minSearchVolume) : undefined,
+            maxRunMs: maxRunMs ? Number(maxRunMs) : undefined
+        });
 
         // 3. Check for Turbo Mode (Background Recursion)
         const db = getServiceSupabase();
@@ -52,7 +79,13 @@ export async function GET(req: NextRequest) {
             fillDocs: result.fillDocs?.processed || 0 
         });
 
-        if (mode === 'TURBO') {
+        // NOTE:
+        // Vercel serverless functions are not a reliable environment for "fire-and-forget" recursion.
+        // We keep the previous recursion behavior behind an explicit env flag so production can safely
+        // drive throughput via GitHub Actions loop calls instead.
+        const allowSelfSpawn = process.env.TURBO_SELF_SPAWN === '1';
+
+        if (mode === 'TURBO' && allowSelfSpawn) {
             // Check for Stop Conditions (Quota Exhaustion or System Failure)
             const fillErrors = result.fillDocs?.errors || [];
             const expandErrors = result.expand?.details?.filter((d: string) => d.includes('rejected') || d.includes('error')) || [];
@@ -94,7 +127,7 @@ export async function GET(req: NextRequest) {
             const selfUrl = `${req.nextUrl.origin}/api/miner/execute?key=${secret}`;
             console.log(`[Miner] Turbo Mode Active. Spawning next batch: ${selfUrl}`);
 
-            // Spawn next run asynchronously
+            // Spawn next run (best-effort). Keep awaited behavior to avoid unhandled work getting dropped.
             try {
                 await fetch(selfUrl, {
                     method: 'GET',
@@ -112,7 +145,7 @@ export async function GET(req: NextRequest) {
             ...result,
             mode: mode,
             info: mode === 'TURBO' 
-                ? 'Turbo Mode: Continuous background execution' 
+                ? (allowSelfSpawn ? 'Turbo Mode: Continuous background execution' : 'Turbo Mode: Driven by scheduler (GitHub Actions loop recommended)') 
                 : 'Normal Mode: Scheduled execution via GitHub Actions (every 5 minutes)'
         });
     } catch (e: any) {

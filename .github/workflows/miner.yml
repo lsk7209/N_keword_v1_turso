@@ -8,7 +8,10 @@ on:
 jobs:
   mine:
     runs-on: ubuntu-latest
-    timeout-minutes: 2 # 최대 2분 (120초) 제한
+    timeout-minutes: 8 # 5분 크론 내에서 루프 호출로 처리량 극대화
+    concurrency:
+      group: miner-cron
+      cancel-in-progress: true
     
     steps:
       - name: Trigger Miner API
@@ -24,51 +27,70 @@ jobs:
           
           START_TIME=$(date +%s)
           echo "🚀 Starting mining batch at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-          
-          # API 호출 with retry logic
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          SUCCESS=false
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
-            echo "📡 Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
-            
-            # curl로 API 호출
-            RESPONSE=$(curl -X GET "${{ secrets.PROD_URL }}/api/miner/execute" \
-              -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
-              -w "\n%{http_code}" \
-              --max-time 70 \
-              --silent \
-              --show-error) || true
-            
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-            
-            if [ "$HTTP_CODE" = "200" ]; then
-              SUCCESS=true
-              echo "✅ Success! HTTP $HTTP_CODE"
-              echo "📊 Response:"
-              echo "$BODY" | jq '.' || echo "$BODY"
-            else
-              echo "⚠️  Failed with HTTP $HTTP_CODE"
-              echo "Response: $BODY"
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                WAIT_TIME=$((RETRY_COUNT * 5))
-                echo "⏳ Waiting ${WAIT_TIME}s before retry..."
-                sleep $WAIT_TIME
+
+          # Aggressive loop:
+          # - GitHub schedule minimum is 5 minutes.
+          # - Inside each run, repeatedly call the miner API for ~3 minutes to maximize daily throughput.
+          # - Keep each API call within Vercel 60s by using smaller batches + controlled concurrency.
+          RUN_FOR_SECONDS=180
+          INTERVAL_SECONDS=20
+          END_TIME=$((START_TIME + RUN_FOR_SECONDS))
+
+          # Tuning knobs (safe defaults) for MAX Related Keywords (Ad API):
+          # - expandBatch=32 => ~32 Ad API calls per miner execution (1 call per seed)
+          # - expandConcurrency=4 => match 4 Ad keys
+          # - minSearchVolume=0 => don't block by volume; maximize throughput
+          # Target Ad calls/day (upper bound): (180/20=9 calls/run) * 32 * 288 ~= 82,944
+          # If you want to push closer to 100k/day, try expandBatch=38~40 (watch 60s timeout/429).
+          QUERY="task=expand&expandBatch=32&expandConcurrency=4&minSearchVolume=0&maxRunMs=55000"
+
+          TOTAL_OK=0
+          TOTAL_FAIL=0
+
+          while [ $(date +%s) -lt $END_TIME ]; do
+            echo "📡 Calling miner: ${{ secrets.PROD_URL }}/api/miner/execute?$QUERY"
+
+            # Per-call retry (keep short)
+            MAX_RETRIES=2
+            RETRY_COUNT=0
+            SUCCESS=false
+
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
+              RESPONSE=$(curl -X GET "${{ secrets.PROD_URL }}/api/miner/execute?$QUERY" \
+                -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
+                -w "\n%{http_code}" \
+                --max-time 75 \
+                --silent \
+                --show-error) || true
+
+              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+              BODY=$(echo "$RESPONSE" | sed '$d')
+
+              if [ "$HTTP_CODE" = "200" ]; then
+                SUCCESS=true
+                TOTAL_OK=$((TOTAL_OK + 1))
+                echo "✅ HTTP $HTTP_CODE"
+                echo "$BODY" | jq '.' || echo "$BODY"
+              else
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                echo "⚠️  HTTP $HTTP_CODE (retry $RETRY_COUNT/$MAX_RETRIES)"
+                echo "Response: $BODY"
+                sleep $((RETRY_COUNT * 3))
               fi
+            done
+
+            if [ "$SUCCESS" = "false" ]; then
+              TOTAL_FAIL=$((TOTAL_FAIL + 1))
+              echo "❌ Call failed after retries"
             fi
+
+            sleep $INTERVAL_SECONDS
           done
-          
+
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
           
-          if [ "$SUCCESS" = "false" ]; then
-            echo "❌ Failed after $MAX_RETRIES attempts (${DURATION}s)"
-            exit 1
-          fi
-          
+          echo "📈 Loop summary: OK=$TOTAL_OK FAIL=$TOTAL_FAIL"
           echo "⏱️  Total execution time: ${DURATION} seconds"
           echo "🎉 Mining batch completed successfully!"
 

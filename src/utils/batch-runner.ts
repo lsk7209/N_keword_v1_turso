@@ -3,7 +3,46 @@ import { getServiceSupabase } from '@/utils/supabase';
 import { processSeedKeyword } from '@/utils/mining-engine';
 import { fetchDocumentCount } from '@/utils/naver-api';
 
-export async function runMiningBatch() {
+type MiningMode = 'NORMAL' | 'TURBO';
+type MiningTask = 'all' | 'expand' | 'fill_docs';
+
+export interface MiningBatchOptions {
+    task?: MiningTask;
+    mode?: MiningMode; // optional override
+    seedCount?: number;
+    expandBatch?: number;
+    expandConcurrency?: number;
+    fillDocsBatch?: number;
+    fillDocsConcurrency?: number; // keywords concurrently fetching doc counts
+    maxRunMs?: number; // hard deadline to avoid Vercel timeout (default: 55s)
+    minSearchVolume?: number;
+}
+
+function clampInt(val: unknown, min: number, max: number, fallback: number) {
+    const n = typeof val === 'number' ? val : Number(val);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+async function mapWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T, idx: number) => Promise<R>
+): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let nextIndex = 0;
+    const workers = new Array(Math.max(1, concurrency)).fill(null).map(async () => {
+        while (true) {
+            const idx = nextIndex++;
+            if (idx >= items.length) return;
+            results[idx] = await worker(items[idx], idx);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
+export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const adminDb = getServiceSupabase();
 
     // 타임스탬프 로깅
@@ -18,30 +57,44 @@ export async function runMiningBatch() {
         .maybeSingle();
     
     // JSONB 값 파싱 (getMiningMode와 동일한 로직)
-    let mode: 'NORMAL' | 'TURBO' = 'TURBO'; // 기본값은 TURBO
+    let mode: MiningMode = 'TURBO'; // 기본값은 TURBO
     if (setting) {
         const rawValue = (setting as any)?.value;
         if (typeof rawValue === 'string') {
-            mode = rawValue.replace(/^"|"$/g, '').toUpperCase() as 'NORMAL' | 'TURBO';
+            mode = rawValue.replace(/^"|"$/g, '').toUpperCase() as MiningMode;
         } else {
-            mode = String(rawValue).toUpperCase() as 'NORMAL' | 'TURBO';
+            mode = String(rawValue).toUpperCase() as MiningMode;
         }
         if (mode !== 'NORMAL' && mode !== 'TURBO') {
             mode = 'TURBO'; // 기본값은 TURBO
         }
     }
+    if (options.mode === 'NORMAL' || options.mode === 'TURBO') {
+        mode = options.mode;
+    }
     const isTurboMode = mode === 'TURBO';
+
+    const task: MiningTask = (options.task === 'expand' || options.task === 'fill_docs' || options.task === 'all')
+        ? options.task
+        : 'all';
+
+    const maxRunMs = clampInt(options.maxRunMs, 10_000, 58_000, 55_000);
+    const deadline = start + maxRunMs;
     
     // 터보모드: API 키 최대 활용 (검색광고 API 4개=10000호출, 문서수 API 9개)
     // 일반 모드: 안정적인 수집 (5분마다 GitHub Actions)
-    const SEED_COUNT = isTurboMode ? 4 : 2; // 터보: 4개 시드, 일반: 2개 시드
-    const FILL_DOCS_BATCH = isTurboMode ? 50 : 30; // 터보: 50개, 일반: 30개
-    const MIN_SEARCH_VOLUME = isTurboMode ? 300 : 500; // 터보: 더 낮은 기준으로 더 많이 수집
+    const SEED_COUNT = clampInt(options.seedCount, 0, 50, isTurboMode ? 10 : 2); // turbo default raised; deadline will cap actual work
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 200, SEED_COUNT);
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 8, isTurboMode ? 4 : 2); // match 4 AD keys by default
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 200, isTurboMode ? 50 : 30); // 터보: 50개, 일반: 30개
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 12, isTurboMode ? 8 : 6);
+    const MIN_SEARCH_VOLUME = clampInt(options.minSearchVolume, 0, 50_000, isTurboMode ? 300 : 500); // 터보: 더 낮은 기준으로 더 많이 수집
 
-    console.log(`[Batch] Mode: ${isTurboMode ? 'TURBO (Max API Usage)' : 'NORMAL'}, Seeds: ${SEED_COUNT}, FillDocs: ${FILL_DOCS_BATCH}`);
+    console.log(`[Batch] Mode: ${isTurboMode ? 'TURBO (Max API Usage)' : 'NORMAL'}, Task: ${task}, ExpandBatch: ${EXPAND_BATCH}, ExpandConcurrency: ${EXPAND_CONCURRENCY}, FillDocs: ${FILL_DOCS_BATCH}, FillConcurrency: ${FILL_DOCS_CONCURRENCY}, MaxRunMs: ${maxRunMs}`);
 
     // === Task 1: EXPAND (Keywords Expansion) ===
     const taskExpand = async () => {
+        if (task === 'fill_docs') return null;
         
         const { data: seedsData, error: seedError } = await adminDb
             .from('keywords')
@@ -49,43 +102,48 @@ export async function runMiningBatch() {
             .eq('is_expanded', false)
             .gte('total_search_cnt', MIN_SEARCH_VOLUME)
             .order('total_search_cnt', { ascending: false })
-            .limit(isTurboMode ? 100 : 50) as { data: any[] | null, error: any }; // 터보: 더 많은 후보
+            .limit(isTurboMode ? 500 : 200) as { data: any[] | null, error: any }; // 터보: 더 많은 후보
 
         if (seedError || !seedsData || seedsData.length === 0) return null;
 
         // 검색량 상위 우선 선택 (랜덤 대신)
-        const seeds = seedsData.slice(0, SEED_COUNT);
+        const seeds = seedsData.slice(0, EXPAND_BATCH);
 
-        console.log(`[Batch] EXPAND: Processing ${seeds.length} seeds (from top ${seedsData.length}, min: ${MIN_SEARCH_VOLUME})`);
+        console.log(`[Batch] EXPAND: Processing up to ${seeds.length} seeds (Concurrency ${EXPAND_CONCURRENCY}, Deadline in ${(deadline - Date.now())}ms, min: ${MIN_SEARCH_VOLUME})`);
+        let stopDueToDeadline = false;
 
-        const expandResults = await Promise.all(
-            seeds.map(async (seed) => {
-                // Optimistic lock
-                const { error: lockError } = await (adminDb as any)
-                    .from('keywords')
-                    .update({ is_expanded: true })
-                    .eq('id', seed.id)
-                    .eq('is_expanded', false);
+        const expandResults = await mapWithConcurrency(seeds, EXPAND_CONCURRENCY, async (seed) => {
+            if (Date.now() > (deadline - 2500)) {
+                stopDueToDeadline = true;
+                return { status: 'skipped_deadline', seed: seed.keyword };
+            }
 
-                if (lockError) return { status: 'skipped', seed: seed.keyword };
+            // Optimistic lock (best-effort): claim the seed so parallel invocations don't duplicate work
+            const { error: lockError } = await (adminDb as any)
+                .from('keywords')
+                .update({ is_expanded: true })
+                .eq('id', seed.id)
+                .eq('is_expanded', false);
 
-                try {
-                    const res = await processSeedKeyword(seed.keyword, 0, true, MIN_SEARCH_VOLUME);
-                    // Mark confirmed
-                    await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
-                    return { status: 'fulfilled', seed: seed.keyword, saved: res.saved };
-                } catch (e: any) {
-                    console.error(`[Batch] Seed Failed: ${seed.keyword} - ${e.message}`);
-                    await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
-                    return { status: 'rejected', seed: seed.keyword, error: e.message };
-                }
-            })
-        );
+            if (lockError) return { status: 'skipped', seed: seed.keyword };
+
+            try {
+                const res = await processSeedKeyword(seed.keyword, 0, true, MIN_SEARCH_VOLUME);
+                // Mark confirmed
+                await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
+                return { status: 'fulfilled', seed: seed.keyword, saved: res.saved };
+            } catch (e: any) {
+                console.error(`[Batch] Seed Failed: ${seed.keyword} - ${e.message}`);
+                await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
+                return { status: 'rejected', seed: seed.keyword, error: e.message };
+            }
+        });
 
         const succeeded = expandResults.filter(r => r.status === 'fulfilled');
         return {
             processedSeeds: seeds.length,
             totalSaved: succeeded.reduce((sum, r: any) => (sum + (r.saved || 0)), 0),
+            stoppedDueToDeadline: stopDueToDeadline,
             details: expandResults.map((r: any) =>
                 r.status === 'fulfilled' ? `${r.seed} (+${r.saved})` : `${r.seed} (${r.status})`
             )
@@ -94,9 +152,11 @@ export async function runMiningBatch() {
 
     // === Task 2: FILL_DOCS (Document Counts) ===
     const taskFillDocs = async () => {
+        if (task === 'expand') return null;
+
         // 터보모드: API 키 최대 활용을 위해 배치 크기 증가
         const BATCH_SIZE = FILL_DOCS_BATCH;
-        const CHUNK_SIZE = isTurboMode ? 30 : 25; // 터보: 더 큰 청크로 병렬 처리
+        const CONCURRENCY = FILL_DOCS_CONCURRENCY;
         
         const { data: docsToFill, error: docsError } = await adminDb
             .from('keywords')
@@ -107,24 +167,23 @@ export async function runMiningBatch() {
 
         if (docsError || !docsToFill || docsToFill.length === 0) return null;
 
-        console.log(`[Batch] FILL_DOCS: Processing ${docsToFill.length} items (Chunks of ${CHUNK_SIZE})`);
-        let processedResults: any[] = [];
+        console.log(`[Batch] FILL_DOCS: Processing ${docsToFill.length} items (Concurrency ${CONCURRENCY}, Deadline in ${(deadline - Date.now())}ms)`);
+        let stopDueToDeadline = false;
 
-        for (let i = 0; i < docsToFill.length; i += CHUNK_SIZE) {
-            const chunk = docsToFill.slice(i, i + CHUNK_SIZE);
-            const chunkResults = await Promise.all(
-                chunk.map(async (item) => {
-                    try {
-                        const counts = await fetchDocumentCount(item.keyword);
-                        return { status: 'fulfilled', item, counts };
-                    } catch (e: any) {
-                        console.error(`[Batch] Error filling ${item.keyword}: ${e.message}`);
-                        return { status: 'rejected', keyword: item.keyword, error: e.message };
-                    }
-                })
-            );
-            processedResults = [...processedResults, ...chunkResults];
-        }
+        const processedResults = await mapWithConcurrency(docsToFill, CONCURRENCY, async (item) => {
+            // Keep a safety margin to avoid Vercel hard timeout.
+            if (Date.now() > (deadline - 2500)) {
+                stopDueToDeadline = true;
+                return { status: 'skipped_deadline', item };
+            }
+            try {
+                const counts = await fetchDocumentCount(item.keyword);
+                return { status: 'fulfilled', item, counts };
+            } catch (e: any) {
+                console.error(`[Batch] Error filling ${item.keyword}: ${e.message}`);
+                return { status: 'rejected', keyword: item.keyword, error: e.message };
+            }
+        });
 
         const succeeded = processedResults.filter(r => r.status === 'fulfilled');
         const failed = processedResults.filter(r => r.status === 'rejected');
@@ -181,6 +240,7 @@ export async function runMiningBatch() {
         return {
             processed: updates.length,
             failed: failed.length,
+            stoppedDueToDeadline: stopDueToDeadline,
             errors: failed.slice(0, 3).map((f: any) => `${f.keyword}: ${f.error}`)
         };
     };
@@ -197,6 +257,8 @@ export async function runMiningBatch() {
 
         return {
             success: true,
+            mode,
+            task,
             expand: expandResult,
             fillDocs: fillDocsResult
         };
