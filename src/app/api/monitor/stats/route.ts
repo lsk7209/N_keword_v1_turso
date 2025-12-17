@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import { getServiceSupabase } from '@/utils/supabase';
+import { getTursoClient } from '@/utils/turso';
 import { keyManager } from '@/utils/key-manager';
 
 export const dynamic = 'force-dynamic';
@@ -12,39 +12,39 @@ export async function GET() {
         const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
         // 1. Total Keywords
-        const { count: total, error: e1 } = await db.from('keywords').select('*', { count: 'exact', head: true });
-        if (e1) throw e1;
+        const totalResult = await db.execute('SELECT COUNT(*) as count FROM keywords');
+        const total = totalResult.rows[0]?.count as number || 0;
 
         // 2. Pending Doc Count (Queue)
-        const { count: qDoc, error: e2 } = await db.from('keywords').select('*', { count: 'exact', head: true }).is('total_doc_cnt', null);
-        if (e2) throw e2;
+        const qDocResult = await db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NULL');
+        const qDoc = qDocResult.rows[0]?.count as number || 0;
 
         // 3. Pending Expansion (Seeds) - High Volume Only
-        const { count: qSeed, error: e3 } = await db.from('keywords').select('*', { count: 'exact', head: true })
-            .eq('is_expanded', false)
-            .gte('total_search_cnt', 1000);
-        if (e3) throw e3;
+        const qSeedResult = await db.execute({
+            sql: 'SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 0 AND total_search_cnt >= 1000',
+            args: []
+        });
+        const qSeed = qSeedResult.rows[0]?.count as number || 0;
 
-        // 3b. Last 24h throughput (approximate but reliable for current pipeline):
-        // - new_keywords_24h: created rows in last 24h
-        // - docs_filled_24h: rows updated by fill_docs (batch-runner sets updated_at when filling docs)
-        const [
-            { count: newKeywords24h, error: e4 },
-            { count: docsFilled24h, error: e5 }
-        ] = await Promise.all([
-            db.from('keywords').select('*', { count: 'exact', head: true }).gte('created_at', since24h),
-            db.from('keywords').select('*', { count: 'exact', head: true }).not('total_doc_cnt', 'is', null).gte('updated_at', since24h),
-        ]);
-        if (e4) throw e4;
-        if (e5) throw e5;
+        // 3b. Last 24h throughput
+        const newKeywords24hResult = await db.execute({
+            sql: 'SELECT COUNT(*) as count FROM keywords WHERE created_at >= ?',
+            args: [since24h]
+        });
+        const newKeywords24h = newKeywords24hResult.rows[0]?.count as number || 0;
+
+        const docsFilled24hResult = await db.execute({
+            sql: 'SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NOT NULL AND updated_at >= ?',
+            args: [since24h]
+        });
+        const docsFilled24h = docsFilled24hResult.rows[0]?.count as number || 0;
 
         // 4. Last Active (Latest updated_at)
-        const { data: lastActive } = await db
-            .from('keywords')
-            .select('updated_at')
-            .order('updated_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        const lastActiveResult = await db.execute({
+            sql: 'SELECT updated_at FROM keywords ORDER BY updated_at DESC LIMIT 1',
+            args: []
+        });
+        const lastActive = lastActiveResult.rows.length > 0 ? { updated_at: lastActiveResult.rows[0].updated_at } : null;
 
         // 5. API Keys Status (based on in-memory cooldown tracking)
         const adStatus = keyManager.getStatusSummary('AD');

@@ -1,5 +1,5 @@
 
-import { getServiceSupabase } from '@/utils/supabase';
+import { getTursoClient, generateUUID, getCurrentTimestamp } from '@/utils/turso';
 import { fetchRelatedKeywords, fetchDocumentCount } from '@/utils/naver-api';
 import { isBlacklisted } from '@/utils/blacklist';
 
@@ -16,7 +16,7 @@ export async function processSeedKeyword(
     minSearchVolume = 1000,  // 기본값 1000, 수동 수집 시 0으로 설정 가능
     maxKeywords = 0          // 수집할 최대 키워드 수 (0 = 무제한)
 ): Promise<MiningResult> {
-    const adminDb = getServiceSupabase();
+    const db = getTursoClient();
     console.log(`[MiningEngine] Processing seed: ${seedKeyword} (SkipDoc: ${skipDocFetch}, MinVolume: ${minSearchVolume}, MaxKeys: ${maxKeywords})`);
 
     // 1. Fetch Related Keywords (Ad API)
@@ -201,30 +201,116 @@ export async function processSeedKeyword(
 
     // A. Rows with Document Counts (Complete Data) -> Standard Upsert (Update allowed)
     if (rowsToInsert.length > 0) {
-        const { error: insertError } = await (adminDb as any)
-            .from('keywords')
-            .upsert(rowsToInsert as any, { onConflict: 'keyword' })
-            .select('id');
+        const now = getCurrentTimestamp();
+        for (const row of rowsToInsert) {
+            try {
+                // Check if keyword exists
+                const checkResult = await db.execute({
+                    sql: 'SELECT id FROM keywords WHERE keyword = ?',
+                    args: [row.keyword]
+                });
 
-        if (insertError) {
-            console.error('DB Upsert Error (Complete):', insertError);
-            throw new Error(`DB Save Failed (Complete): ${insertError.message}`);
+                if (checkResult.rows.length > 0) {
+                    // Update existing
+                    const existingId = checkResult.rows[0].id as string;
+                    await db.execute({
+                        sql: `UPDATE keywords SET 
+                            total_search_cnt = ?, pc_search_cnt = ?, mo_search_cnt = ?,
+                            pc_click_cnt = ?, mo_click_cnt = ?, click_cnt = ?,
+                            pc_ctr = ?, mo_ctr = ?, total_ctr = ?,
+                            comp_idx = ?, pl_avg_depth = ?,
+                            total_doc_cnt = ?, blog_doc_cnt = ?, cafe_doc_cnt = ?,
+                            web_doc_cnt = ?, news_doc_cnt = ?,
+                            golden_ratio = ?, tier = ?, is_expanded = ?,
+                            updated_at = ?
+                            WHERE id = ?`,
+                        args: [
+                            row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                            row.comp_idx || null, row.pl_avg_depth || 0,
+                            row.total_doc_cnt, row.blog_doc_cnt || 0, row.cafe_doc_cnt || 0,
+                            row.web_doc_cnt || 0, row.news_doc_cnt || 0,
+                            row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                            now, existingId
+                        ]
+                    });
+                } else {
+                    // Insert new
+                    const id = generateUUID();
+                    await db.execute({
+                        sql: `INSERT INTO keywords (
+                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                            pc_click_cnt, mo_click_cnt, click_cnt,
+                            pc_ctr, mo_ctr, total_ctr,
+                            comp_idx, pl_avg_depth,
+                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                            web_doc_cnt, news_doc_cnt,
+                            golden_ratio, tier, is_expanded,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        args: [
+                            id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                            row.comp_idx || null, row.pl_avg_depth || 0,
+                            row.total_doc_cnt, row.blog_doc_cnt || 0, row.cafe_doc_cnt || 0,
+                            row.web_doc_cnt || 0, row.news_doc_cnt || 0,
+                            row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                            now, now
+                        ]
+                    });
+                }
+                totalSaved++;
+            } catch (e: any) {
+                console.error(`DB Upsert Error for ${row.keyword}:`, e);
+                throw new Error(`DB Save Failed (Complete): ${e.message}`);
+            }
         }
-        totalSaved += rowsToInsert.length;
     }
 
     // B. Rows Deferred (Null Docs) -> Insert Only (ignoreDuplicates)
     if (rowsDeferred.length > 0) {
-        const { error: deferredError } = await (adminDb as any)
-            .from('keywords')
-            .upsert(rowsDeferred as any, { onConflict: 'keyword', ignoreDuplicates: true })
-            .select('id');
+        const now = getCurrentTimestamp();
+        for (const row of rowsDeferred) {
+            try {
+                // Check if keyword exists (ignore if exists)
+                const checkResult = await db.execute({
+                    sql: 'SELECT id FROM keywords WHERE keyword = ?',
+                    args: [row.keyword]
+                });
 
-        if (deferredError) {
-            console.error('DB Upsert Error (Deferred):', deferredError);
-            throw new Error(`DB Save Failed (Deferred): ${deferredError.message}`);
+                if (checkResult.rows.length === 0) {
+                    // Insert only if not exists
+                    const id = generateUUID();
+                    await db.execute({
+                        sql: `INSERT INTO keywords (
+                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                            pc_click_cnt, mo_click_cnt, click_cnt,
+                            pc_ctr, mo_ctr, total_ctr,
+                            comp_idx, pl_avg_depth,
+                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                            web_doc_cnt, news_doc_cnt,
+                            golden_ratio, tier, is_expanded,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        args: [
+                            id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                            row.comp_idx || null, row.pl_avg_depth || 0,
+                            null, 0, 0, 0, 0,
+                            0, row.tier, row.is_expanded ? 1 : 0,
+                            now, now
+                        ]
+                    });
+                    totalSaved++;
+                }
+            } catch (e: any) {
+                console.error(`DB Insert Error for ${row.keyword}:`, e);
+                // Continue with other rows instead of throwing
+            }
         }
-        totalSaved += rowsDeferred.length;
     }
 
     return {

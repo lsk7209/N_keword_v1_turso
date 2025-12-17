@@ -1,7 +1,7 @@
 'use server';
 
 import { runMiningBatch } from '@/utils/batch-runner';
-import { getServiceSupabase } from '@/utils/supabase';
+import { getTursoClient } from '@/utils/turso';
 
 export async function triggerMining() {
     try {
@@ -16,16 +16,11 @@ export async function triggerMining() {
 
 export async function setMiningMode(mode: 'NORMAL' | 'TURBO') {
     try {
-        const db = getServiceSupabase();
-        // JSONB 컬럼에 문자열 저장 (Supabase가 자동으로 JSONB로 변환)
-        const { error } = await db
-            .from('settings' as any)
-            .upsert({ key: 'mining_mode', value: mode } as any);
-
-        if (error) {
-            console.error('[setMiningMode] DB Error:', error);
-            throw error;
-        }
+        const db = getTursoClient();
+        await db.execute({
+            sql: 'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)',
+            args: ['mining_mode', mode, new Date().toISOString()]
+        });
         
         console.log('[setMiningMode] Successfully set mode to:', mode);
         return { success: true };
@@ -37,32 +32,17 @@ export async function setMiningMode(mode: 'NORMAL' | 'TURBO') {
 
 export async function getMiningMode() {
     try {
-        const db = getServiceSupabase();
-        const { data, error } = await db
-            .from('settings')
-            .select('value')
-            .eq('key', 'mining_mode')
-            .maybeSingle();
+        const db = getTursoClient();
+        const result = await db.execute({
+            sql: 'SELECT value FROM settings WHERE key = ?',
+            args: ['mining_mode']
+        });
 
-        if (error) {
-            console.error('[getMiningMode] DB Error:', error);
-            throw error;
-        }
-
-        // JSONB 값 처리: Supabase가 자동으로 파싱하지만, 문자열로 저장된 경우도 처리
         let mode: 'NORMAL' | 'TURBO' = 'TURBO';
         
-        if (data) {
-            const rawValue = (data as any)?.value;
-            
-            // JSONB가 이미 파싱된 경우 (문자열)
-            if (typeof rawValue === 'string') {
-                // 따옴표 제거 (JSON 문자열인 경우: "TURBO" -> TURBO)
-                mode = rawValue.replace(/^"|"$/g, '').toUpperCase() as 'NORMAL' | 'TURBO';
-            } else {
-                // 이미 객체로 파싱된 경우
-                mode = String(rawValue).toUpperCase() as 'NORMAL' | 'TURBO';
-            }
+        if (result.rows.length > 0) {
+            const rawValue = result.rows[0].value as string;
+            mode = rawValue.toUpperCase() as 'NORMAL' | 'TURBO';
             
             // 유효성 검사
             if (mode !== 'NORMAL' && mode !== 'TURBO') {
@@ -71,7 +51,7 @@ export async function getMiningMode() {
             }
         }
 
-        console.log('[getMiningMode] Retrieved mode:', mode, 'from DB:', data);
+        console.log('[getMiningMode] Retrieved mode:', mode);
         return { success: true, mode };
     } catch (e: any) {
         console.error('[getMiningMode] Error:', e);

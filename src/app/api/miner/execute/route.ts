@@ -1,7 +1,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runMiningBatch } from '@/utils/batch-runner';
-import { getServiceSupabase } from '@/utils/supabase';
+import { getTursoClient } from '@/utils/turso';
 
 // Set Vercel Function config
 export const maxDuration = 60; // 60 seconds strict
@@ -53,12 +53,12 @@ export async function GET(req: NextRequest) {
         });
 
         // 3. Check for Turbo Mode (Background Recursion)
-        const db = getServiceSupabase();
-        const { data: setting } = await db
-            .from('settings')
-            .select('value')
-            .eq('key', 'mining_mode')
-            .single();
+        const db = getTursoClient();
+        const settingResult = await db.execute({
+            sql: 'SELECT value FROM settings WHERE key = ?',
+            args: ['mining_mode']
+        });
+        const setting = settingResult.rows.length > 0 ? { value: settingResult.rows[0].value } : null;
 
         // JSONB 값 파싱 (getMiningMode와 동일한 로직)
         let mode: 'NORMAL' | 'TURBO' = 'TURBO';
@@ -116,7 +116,10 @@ export async function GET(req: NextRequest) {
                 console.warn(`[Miner] TURBO STOP: ${reason}. Auto-switching to NORMAL mode.`);
 
                 // Disable Turbo Mode in DB (자동으로 일반 모드로 변경)
-                await db.from('settings' as any).upsert({ key: 'mining_mode', value: 'NORMAL' } as any);
+                await db.execute({
+                    sql: 'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)',
+                    args: ['mining_mode', 'NORMAL', new Date().toISOString()]
+                });
 
                 return NextResponse.json({
                     ...result,

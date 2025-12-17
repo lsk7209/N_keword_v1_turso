@@ -1,5 +1,5 @@
 
-import { getServiceSupabase } from '@/utils/supabase';
+import { getTursoClient, getCurrentTimestamp } from '@/utils/turso';
 import { processSeedKeyword } from '@/utils/mining-engine';
 import { fetchDocumentCount } from '@/utils/naver-api';
 
@@ -43,18 +43,18 @@ async function mapWithConcurrency<T, R>(
 }
 
 export async function runMiningBatch(options: MiningBatchOptions = {}) {
-    const adminDb = getServiceSupabase();
+    const db = getTursoClient();
 
     // 타임스탬프 로깅
     const start = Date.now();
     console.log('[Batch] Starting Parallel Mining Batch...');
 
     // 터보모드 확인 (API 키 최대 활용을 위한 배치 크기 조정)
-    const { data: setting } = await adminDb
-        .from('settings')
-        .select('value')
-        .eq('key', 'mining_mode')
-        .maybeSingle();
+    const settingResult = await db.execute({
+        sql: 'SELECT value FROM settings WHERE key = ?',
+        args: ['mining_mode']
+    });
+    const setting = settingResult.rows.length > 0 ? { value: settingResult.rows[0].value } : null;
 
     // JSONB 값 파싱 (getMiningMode와 동일한 로직)
     let mode: MiningMode = 'TURBO'; // 기본값은 TURBO
@@ -96,15 +96,21 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const taskExpand = async () => {
         if (task === 'fill_docs') return null;
 
-        const { data: seedsData, error: seedError } = await adminDb
-            .from('keywords')
-            .select('id, keyword, total_search_cnt')
-            .eq('is_expanded', false)
-            .gte('total_search_cnt', MIN_SEARCH_VOLUME)
-            .order('total_search_cnt', { ascending: false })
-            .limit(isTurboMode ? 500 : 200) as { data: any[] | null, error: any }; // 터보: 더 많은 후보
+        const seedsResult = await db.execute({
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords 
+                  WHERE is_expanded = 0 AND total_search_cnt >= ? 
+                  ORDER BY total_search_cnt DESC 
+                  LIMIT ?`,
+            args: [MIN_SEARCH_VOLUME, isTurboMode ? 500 : 200]
+        });
 
-        if (seedError || !seedsData || seedsData.length === 0) return null;
+        const seedsData = seedsResult.rows.map(row => ({
+            id: row.id as string,
+            keyword: row.keyword as string,
+            total_search_cnt: row.total_search_cnt as number
+        }));
+
+        if (!seedsData || seedsData.length === 0) return null;
 
         // 검색량 상위 우선 선택 (랜덤 대신)
         const seeds = seedsData.slice(0, EXPAND_BATCH);
@@ -119,22 +125,27 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
             }
 
             // Optimistic lock (best-effort): claim the seed so parallel invocations don't duplicate work
-            const { error: lockError } = await (adminDb as any)
-                .from('keywords')
-                .update({ is_expanded: true })
-                .eq('id', seed.id)
-                .eq('is_expanded', false);
+            const lockResult = await db.execute({
+                sql: 'UPDATE keywords SET is_expanded = 1 WHERE id = ? AND is_expanded = 0',
+                args: [seed.id]
+            });
 
-            if (lockError) return { status: 'skipped', seed: seed.keyword };
+            if (lockResult.rowsAffected === 0) return { status: 'skipped', seed: seed.keyword };
 
             try {
                 const res = await processSeedKeyword(seed.keyword, 0, true, MIN_SEARCH_VOLUME);
                 // Mark confirmed
-                await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
+                await db.execute({
+                    sql: 'UPDATE keywords SET is_expanded = 1 WHERE id = ?',
+                    args: [seed.id]
+                });
                 return { status: 'fulfilled', seed: seed.keyword, saved: res.saved };
             } catch (e: any) {
                 console.error(`[Batch] Seed Failed: ${seed.keyword} - ${e.message}`);
-                await (adminDb as any).from('keywords').update({ is_expanded: true }).eq('id', seed.id);
+                await db.execute({
+                    sql: 'UPDATE keywords SET is_expanded = 1 WHERE id = ?',
+                    args: [seed.id]
+                });
                 return { status: 'rejected', seed: seed.keyword, error: e.message };
             }
         });
@@ -158,14 +169,21 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         const BATCH_SIZE = FILL_DOCS_BATCH;
         const CONCURRENCY = FILL_DOCS_CONCURRENCY;
 
-        const { data: docsToFill, error: docsError } = await adminDb
-            .from('keywords')
-            .select('id, keyword, total_search_cnt')
-            .is('total_doc_cnt', null)
-            .order('total_search_cnt', { ascending: false })
-            .limit(BATCH_SIZE) as { data: any[] | null, error: any };
+        const docsResult = await db.execute({
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords 
+                  WHERE total_doc_cnt IS NULL 
+                  ORDER BY total_search_cnt DESC 
+                  LIMIT ?`,
+            args: [BATCH_SIZE]
+        });
 
-        if (docsError || !docsToFill || docsToFill.length === 0) return null;
+        const docsToFill = docsResult.rows.map(row => ({
+            id: row.id as string,
+            keyword: row.keyword as string,
+            total_search_cnt: row.total_search_cnt as number
+        }));
+
+        if (!docsToFill || docsToFill.length === 0) return null;
 
         console.log(`[Batch] FILL_DOCS: Processing ${docsToFill.length} items (Concurrency ${CONCURRENCY}, Deadline in ${(deadline - Date.now())}ms)`);
         let stopDueToDeadline = false;
@@ -239,13 +257,31 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         }).filter(Boolean);
 
         const updates = [...successUpdates, ...failureUpdates];
+        const now = getCurrentTimestamp();
 
         if (updates.length > 0) {
-            const { error: upsertError } = await (adminDb as any)
-                .from('keywords')
-                .upsert(updates, { onConflict: 'id' });
-
-            if (upsertError) {
+            try {
+                for (const update of updates) {
+                    await db.execute({
+                        sql: `UPDATE keywords SET 
+                            total_doc_cnt = ?, blog_doc_cnt = ?, cafe_doc_cnt = ?,
+                            web_doc_cnt = ?, news_doc_cnt = ?,
+                            golden_ratio = ?, tier = ?, updated_at = ?
+                            WHERE id = ?`,
+                        args: [
+                            update.total_doc_cnt,
+                            update.blog_doc_cnt || 0,
+                            update.cafe_doc_cnt || 0,
+                            update.web_doc_cnt || 0,
+                            update.news_doc_cnt || 0,
+                            update.golden_ratio,
+                            update.tier,
+                            now,
+                            update.id
+                        ]
+                    });
+                }
+            } catch (upsertError: any) {
                 console.error('[Batch] Bulk Upsert Error:', upsertError);
                 return {
                     processed: 0,

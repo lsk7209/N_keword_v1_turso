@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/utils/supabase';
+import { getTursoClient } from '@/utils/turso';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,42 +32,63 @@ export async function GET(req: NextRequest) {
     const sort = searchParams.get('sort') || 'search_desc';
     const part = parseInt(searchParams.get('part') || '1');
 
-    let query = supabase
-        .from('keywords')
-        .select('*');
-
+    const db = getTursoClient();
     const requiresDocs = ['cafe_asc', 'blog_asc', 'web_asc', 'news_asc', 'tier_desc', 'tier_asc'].includes(sort);
+
+    // Build WHERE clause
+    let whereClause = '';
     if (requiresDocs) {
-        query = query.not('total_doc_cnt', 'is', null);
+        whereClause = 'WHERE total_doc_cnt IS NOT NULL';
     }
 
-    // Sorting (keep consistent with /api/keywords)
+    // Build ORDER BY clause
+    let orderBy = '';
     if (sort === 'tier_desc') {
-        query = query.order('tier', { ascending: true }).order('golden_ratio', { ascending: false });
+        orderBy = 'ORDER BY tier ASC, golden_ratio DESC';
     } else if (sort === 'tier_asc') {
-        query = query.order('tier', { ascending: false }).order('golden_ratio', { ascending: true });
+        orderBy = 'ORDER BY tier DESC, golden_ratio ASC';
     } else if (sort === 'opp_desc') {
-        query = query.order('golden_ratio', { ascending: false });
+        orderBy = 'ORDER BY golden_ratio DESC';
     } else if (sort === 'cafe_asc') {
-        query = query.order('cafe_doc_cnt', { ascending: true, nullsFirst: false }).order('total_search_cnt', { ascending: false });
+        orderBy = 'ORDER BY cafe_doc_cnt ASC, total_search_cnt DESC';
     } else if (sort === 'blog_asc') {
-        query = query.order('blog_doc_cnt', { ascending: true, nullsFirst: false }).order('total_search_cnt', { ascending: false });
+        orderBy = 'ORDER BY blog_doc_cnt ASC, total_search_cnt DESC';
     } else if (sort === 'web_asc') {
-        query = query.order('web_doc_cnt', { ascending: true, nullsFirst: false }).order('total_search_cnt', { ascending: false });
+        orderBy = 'ORDER BY web_doc_cnt ASC, total_search_cnt DESC';
     } else if (sort === 'news_asc') {
-        query = query.order('news_doc_cnt', { ascending: true, nullsFirst: false }).order('total_search_cnt', { ascending: false });
+        orderBy = 'ORDER BY news_doc_cnt ASC, total_search_cnt DESC';
     } else {
-        query = query.order('total_search_cnt', { ascending: false });
+        orderBy = 'ORDER BY total_search_cnt DESC';
     }
 
-    query = query.range(cursor, cursor + limit - 1);
+    const dataSql = `SELECT * FROM keywords ${whereClause} ${orderBy} LIMIT ? OFFSET ?`;
+    const dataResult = await db.execute({
+        sql: dataSql,
+        args: [limit, cursor]
+    });
 
-    const { data, error } = await query;
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    const rows = data || [];
+    const rows = dataResult.rows.map(row => ({
+        id: row.id,
+        keyword: row.keyword,
+        total_search_cnt: row.total_search_cnt,
+        pc_search_cnt: row.pc_search_cnt,
+        mo_search_cnt: row.mo_search_cnt,
+        click_cnt: row.click_cnt,
+        ctr: row.ctr,
+        comp_idx: row.comp_idx,
+        pl_avg_depth: row.pl_avg_depth,
+        avg_bid_price: row.avg_bid_price,
+        total_doc_cnt: row.total_doc_cnt,
+        blog_doc_cnt: row.blog_doc_cnt,
+        cafe_doc_cnt: row.cafe_doc_cnt,
+        web_doc_cnt: row.web_doc_cnt,
+        news_doc_cnt: row.news_doc_cnt,
+        tier: row.tier,
+        golden_ratio: row.golden_ratio,
+        is_expanded: row.is_expanded === 1,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+    }));
     const nextCursor = rows.length === limit ? cursor + limit : null;
 
     // Columns (Excel-friendly CSV)

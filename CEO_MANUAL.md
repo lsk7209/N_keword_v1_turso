@@ -4,23 +4,26 @@
 
 ## 1. 초기 세팅 (Setup)
 
-### 1-1. Supabase 데이터베이스 설정
-1. [Supabase](https://supabase.com) 프로젝트 생성.
-2. `SQL Editor` 메뉴로 이동.
-3. 프로젝트 내 `supabase/schema.sql` 파일의 내용을 복사/붙여넣기 후 `Run`.
-4. `keywords` 테이블 생성 확인.
+### 1-1. Turso 데이터베이스 설정
+1. [Turso](https://turso.tech) 프로젝트 생성 및 로그인.
+2. 새 데이터베이스 생성.
+3. 데이터베이스 URL과 Auth Token 확인.
+4. Turso CLI 설치: `curl -sSfL https://get.tur.so/install.sh | bash`
+5. `turso db shell your-database-name < turso/schema.sql` 실행하여 스키마 생성.
+   - 또는 Turso 웹 대시보드의 SQL Editor에서 `turso/schema.sql` 내용을 복사/붙여넣기.
 
 ### 1-2. 환경변수 (Environment Variables)
 Vercel 배포 시 다음 변수를 설정해야 합니다.
 
 | 변수명 | 설명 | 예시 |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL | https://xyz.supabase.co |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Anon Key | eyJ... |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Service Role Key (Cron용) | eyJ... (절대 노출 금지) |
+| `TURSO_DATABASE_URL` | Turso 데이터베이스 URL | libsql://your-db.turso.io |
+| `TURSO_AUTH_TOKEN` | Turso 인증 토큰 | your-auth-token (절대 노출 금지) |
 | `NAVER_AD_API_KEYS` | 네이버 검색광고 API 키 배열 | `["Access:Secret:CustId", ...]` |
 | `NAVER_SEARCH_API_KEYS` | 네이버 검색/쇼핑 API 키 배열 | `["Client:Secret", ...]` |
 | `CRON_SECRET` | 마이닝 API 보안 키 | 임의의 긴 문자열 |
+
+**참고**: 이전에 Supabase를 사용했다면 `TURSO_MIGRATION.md` 문서를 참고하여 데이터를 마이그레이션하세요.
 
 ### 1-3. GitHub Actions (자동 채굴) 설정
 1. GitHub Repo > Settings > Secrets and variables > Actions.
