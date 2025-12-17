@@ -55,7 +55,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         .select('value')
         .eq('key', 'mining_mode')
         .maybeSingle();
-    
+
     // JSONB 값 파싱 (getMiningMode와 동일한 로직)
     let mode: MiningMode = 'TURBO'; // 기본값은 TURBO
     if (setting) {
@@ -80,22 +80,22 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 
     const maxRunMs = clampInt(options.maxRunMs, 10_000, 58_000, 55_000);
     const deadline = start + maxRunMs;
-    
+
     // 터보모드: API 키 최대 활용 (검색광고 API 4개=10000호출, 문서수 API 9개)
     // 일반 모드: 안정적인 수집 (5분마다 GitHub Actions)
-    const SEED_COUNT = clampInt(options.seedCount, 0, 50, isTurboMode ? 10 : 2); // turbo default raised; deadline will cap actual work
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 200, SEED_COUNT);
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 8, isTurboMode ? 4 : 2); // match 4 AD keys by default
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 200, isTurboMode ? 50 : 30); // 터보: 50개, 일반: 30개
-    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 12, isTurboMode ? 8 : 6);
-    const MIN_SEARCH_VOLUME = clampInt(options.minSearchVolume, 0, 50_000, isTurboMode ? 300 : 500); // 터보: 더 낮은 기준으로 더 많이 수집
+    const SEED_COUNT = clampInt(options.seedCount, 0, 50, isTurboMode ? 20 : 5); // turbo default raised
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 300, isTurboMode ? 100 : 20);
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 16, isTurboMode ? 8 : 2); // match 4 AD keys (can reuse)
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 300, isTurboMode ? 100 : 30); // 터보: 100개, 일반: 30개
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 32, isTurboMode ? 16 : 6);
+    const MIN_SEARCH_VOLUME = clampInt(options.minSearchVolume, 0, 50_000, isTurboMode ? 50 : 500); // 터보: 롱테일 포함 aggressively
 
     console.log(`[Batch] Mode: ${isTurboMode ? 'TURBO (Max API Usage)' : 'NORMAL'}, Task: ${task}, ExpandBatch: ${EXPAND_BATCH}, ExpandConcurrency: ${EXPAND_CONCURRENCY}, FillDocs: ${FILL_DOCS_BATCH}, FillConcurrency: ${FILL_DOCS_CONCURRENCY}, MaxRunMs: ${maxRunMs}`);
 
     // === Task 1: EXPAND (Keywords Expansion) ===
     const taskExpand = async () => {
         if (task === 'fill_docs') return null;
-        
+
         const { data: seedsData, error: seedError } = await adminDb
             .from('keywords')
             .select('id, keyword, total_search_cnt')
@@ -157,7 +157,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         // 터보모드: API 키 최대 활용을 위해 배치 크기 증가
         const BATCH_SIZE = FILL_DOCS_BATCH;
         const CONCURRENCY = FILL_DOCS_CONCURRENCY;
-        
+
         const { data: docsToFill, error: docsError } = await adminDb
             .from('keywords')
             .select('id, keyword, total_search_cnt')
@@ -188,8 +188,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         const succeeded = processedResults.filter(r => r.status === 'fulfilled');
         const failed = processedResults.filter(r => r.status === 'rejected');
 
-        // Bulk Upsert
-        const updates = succeeded.map((res: any) => {
+        // Success Updates
+        const successUpdates = succeeded.map((res: any) => {
             const { item, counts } = res;
             const viewDocCnt = (counts.blog || 0) + (counts.cafe || 0) + (counts.web || 0);
             let ratio = 0;
@@ -222,6 +222,24 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
             };
         });
 
+        // Failure Updates (Mark as Error to prevent reuse)
+        const failureUpdates = failed.map((res: any) => {
+            const { keyword, error } = res;
+            // Find original item ID from docsToFill
+            const original = docsToFill.find(d => d.keyword === keyword);
+            if (!original) return null;
+
+            return {
+                id: original.id,
+                keyword: keyword,
+                total_doc_cnt: -1, // Error Flag
+                tier: 'ERROR',
+                updated_at: new Date().toISOString()
+            };
+        }).filter(Boolean);
+
+        const updates = [...successUpdates, ...failureUpdates];
+
         if (updates.length > 0) {
             const { error: upsertError } = await (adminDb as any)
                 .from('keywords')
@@ -238,7 +256,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         }
 
         return {
-            processed: updates.length,
+            processed: successUpdates.length,
             failed: failed.length,
             stoppedDueToDeadline: stopDueToDeadline,
             errors: failed.slice(0, 3).map((f: any) => `${f.keyword}: ${f.error}`)

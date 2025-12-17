@@ -178,7 +178,8 @@ export default function KeywordList({
                                             ${post.tier === 'PLATINUM' ? 'bg-cyan-100 text-cyan-700' :
                                                 post.tier === 'GOLD' ? 'bg-yellow-100 text-yellow-700' :
                                                     post.tier === 'SILVER' ? 'bg-slate-100 text-slate-700' :
-                                                        'bg-orange-50 text-orange-800'}`}>
+                                                        post.tier === 'ERROR' ? 'bg-red-100 text-red-700' :
+                                                            'bg-orange-50 text-orange-800'}`}>
                                             {post.tier}
                                         </span>
                                     </div>
