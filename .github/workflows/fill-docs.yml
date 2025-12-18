@@ -33,28 +33,30 @@ jobs:
           echo "📄 Starting document count collection at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
           echo "🔗 Target: ${{ secrets.PROD_URL }}/api/miner/execute"
 
-          # 목표: 하루 최대 50,000개 이상 키워드의 문서수 수집 (최고치 달성)
+          # 목표: 하루 최대 100,000개 이상 키워드의 문서수 수집 (29개 API 키 최적화)
           # - 각 키워드당 4개 API 호출 (blog, cafe, web, news)
-          # - 총 Search API 호출: 50,000 * 4 = 200,000 (API 키 추가 시 한도 확장 가능)
+          # - 총 Search API 호출: 100,000 * 4 = 400,000 (29개 키 * 25,000 = 725,000 한도 내)
           # 계산식: (RUN_FOR_SECONDS/INTERVAL_SECONDS) * fillBatch * 288 (하루 실행 횟수)
-          RUN_FOR_SECONDS=150  # 2.5분간 실행 (더 많은 처리량)
-          INTERVAL_SECONDS=25  # 25초마다 API 호출 (더 자주 호출)
+          RUN_FOR_SECONDS=180  # 3분간 실행 (최대 처리량)
+          INTERVAL_SECONDS=20  # 20초마다 API 호출 (더 자주 호출)
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 파라미터 설정 (최대 처리량 최적화):
+          # 파라미터 설정 (29개 API 키 최적화):
           # - task=fill_docs: 문서수 수집만 실행
-          # - fillBatch=60: 한 번에 60개 키워드 처리 (44 → 60으로 증가)
-          # - fillConcurrency=12: 12개 키워드를 동시에 처리 (8 → 12로 증가, API 키 추가 시 더 증가 가능)
-          #   각 키워드당 4개 API 호출 = 최대 48개 동시 HTTP 요청
+          # - fillBatch=100: 한 번에 100개 키워드 처리 (최대치)
+          # - fillConcurrency=24: 24개 키워드를 동시에 처리 (29개 키 활용)
+          #   각 키워드당 4개 API 호출 = 최대 96개 동시 HTTP 요청
+          #   (29개 키로 충분히 처리 가능)
           # - maxRunMs=55000: Vercel 60초 타임아웃 방지를 위해 55초 제한
           # 
-          # 예상 처리량 (최적화 후):
-          # - 실행당: (150/25=6회) * 60개 = 360개 키워드
-          # - 하루: 360개 * 288회 = 103,680개 키워드 (이론상 최대치)
-          # - 실제: API 한도 고려 시 약 50,000-60,000개 (안전한 범위)
-          # - Search API 호출: 50,000 * 4 = 200,000 (기본 9개 키 기준)
-          #   API 키 추가 시 더 많은 처리 가능
-          QUERY="task=fill_docs&fillBatch=60&fillConcurrency=12&maxRunMs=55000"
+          # 예상 처리량 (29개 키 최적화):
+          # - 실행당: (180/20=9회) * 100개 = 900개 키워드 (이론상)
+          # - 실제 안전: (180/20=9회) * 80개 = 720개 키워드 (안정적)
+          # - 하루: 720개 * 288회 = 207,360개 키워드 (이론상 최대치)
+          # - 실제 안전: 약 100,000-120,000개 키워드 (안전한 범위)
+          # - Search API 호출: 100,000 * 4 = 400,000 (29개 키 * 25,000 = 725,000 한도 내)
+          #   한도 사용률: 약 55% (안전한 범위)
+          QUERY="task=fill_docs&fillBatch=100&fillConcurrency=24&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
