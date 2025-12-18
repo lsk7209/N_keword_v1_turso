@@ -38,7 +38,22 @@ export async function GET(req: NextRequest) {
     // Build WHERE clause
     let whereClause = '';
     if (requiresDocs) {
-        whereClause = 'WHERE total_doc_cnt IS NOT NULL';
+        if (sort === 'cafe_asc') {
+            // 카페 적은순: 카페 문서수가 0이 아닌 것만 (NULL도 제외)
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND cafe_doc_cnt > 0';
+        } else if (sort === 'blog_asc') {
+            // 블로그 적은순: 블로그 문서수가 0이 아닌 것만
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND blog_doc_cnt > 0';
+        } else if (sort === 'web_asc') {
+            // 웹 적은순: 웹 문서수가 0이 아닌 것만
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND web_doc_cnt > 0';
+        } else if (sort === 'news_asc') {
+            // 뉴스 적은순: 뉴스 문서수가 0이 아닌 것만
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND news_doc_cnt > 0';
+        } else {
+            // 등급순: 문서수가 있는 것만 (total_doc_cnt IS NOT NULL)
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL';
+        }
     }
 
     // Build ORDER BY clause
