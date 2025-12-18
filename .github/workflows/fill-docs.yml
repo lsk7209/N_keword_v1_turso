@@ -1,51 +1,69 @@
-name: Keyword Document Count Cron
+name: 📄 문서수 수집 크론 (Document Count Collection)
 
 on:
   schedule:
-    # Offset by 2 minutes to reduce collision with miner.yml (expand).
+    # 5분마다 실행 (miner.yml과 2분 오프셋으로 충돌 방지)
+    # miner.yml: */5 * * * * (0, 5, 10, 15, ...)
+    # fill-docs.yml: 2-59/5 * * * * (2, 7, 12, 17, ...)
     - cron: '2-59/5 * * * *'
-  workflow_dispatch:
+  workflow_dispatch: # 수동 실행 가능
 
 jobs:
   fill_docs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     concurrency:
-      # Shared group so expand/fill_docs won't overlap and thrash API/db.
+      # miner.yml과 동일한 그룹으로 동시 실행 방지
       group: miner-cron
       cancel-in-progress: false
-
+    
     steps:
-      - name: Trigger Miner API (fill_docs)
+      - name: 📄 문서수 수집 시작
+        id: fill_docs
         run: |
-          set -e
-
+          set -e  # 에러 시 즉시 중단
+          
+          # 환경 변수 검증
           if [ -z "${{ secrets.PROD_URL }}" ] || [ -z "${{ secrets.CRON_SECRET }}" ]; then
             echo "❌ ERROR: PROD_URL or CRON_SECRET is not set in GitHub Secrets."
             exit 1
           fi
-
+          
           START_TIME=$(date +%s)
-          echo "📄 Starting fill_docs at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "📄 Starting document count collection at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "🔗 Target: ${{ secrets.PROD_URL }}/api/miner/execute"
 
-          # Goal: ~50k keywords/day with 4 doc-count calls per keyword (blog/cafe/web/news)
-          # keywords/day ~= (RUN_FOR_SECONDS/INTERVAL_SECONDS) * fillBatch * 288
-          # Search calls/day ~= keywords/day * 4  (must stay <= 9*25k = 225k)
-          RUN_FOR_SECONDS=120
-          INTERVAL_SECONDS=30
+          # 목표: 하루 약 50,000개 키워드의 문서수 수집
+          # - 각 키워드당 4개 API 호출 (blog, cafe, web, news)
+          # - 총 Search API 호출: 50,000 * 4 = 200,000 (9개 키 * 25,000 = 225,000 한도 내)
+          # 계산식: (RUN_FOR_SECONDS/INTERVAL_SECONDS) * fillBatch * 288 (하루 실행 횟수)
+          RUN_FOR_SECONDS=120  # 2분간 실행
+          INTERVAL_SECONDS=30  # 30초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # Target keywords/day: (120/30=4 calls/run) * 44 * 288 ~= 50,688
-          # Target Search calls/day: 50,688 * 4 ~= 202,752  (within 225,000)
-          # - fillConcurrency=8 => up to 32 concurrent HTTP calls (because each keyword runs 4 in parallel)
+          # 파라미터 설정:
+          # - task=fill_docs: 문서수 수집만 실행
+          # - fillBatch=44: 한 번에 44개 키워드 처리
+          # - fillConcurrency=8: 8개 키워드를 동시에 처리 (각 키워드당 4개 API 호출 = 최대 32개 동시 HTTP 요청)
+          # - maxRunMs=55000: Vercel 60초 타임아웃 방지를 위해 55초 제한
+          # 
+          # 예상 처리량:
+          # - 실행당: (120/30=4회) * 44개 = 176개 키워드
+          # - 하루: 176개 * 288회 = 50,688개 키워드
+          # - Search API 호출: 50,688 * 4 = 202,752 (한도 내)
           QUERY="task=fill_docs&fillBatch=44&fillConcurrency=8&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
+          TOTAL_KEYWORDS=0
 
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "📡 Calling miner: ${{ secrets.PROD_URL }}/api/miner/execute?$QUERY"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📡 API 호출: ${{ secrets.PROD_URL }}/api/miner/execute?$QUERY"
+            echo "⏰ 남은 시간: $((END_TIME - $(date +%s)))초"
 
+            # 재시도 로직
             MAX_RETRIES=2
             RETRY_COUNT=0
             SUCCESS=false
@@ -64,28 +82,54 @@ jobs:
               if [ "$HTTP_CODE" = "200" ]; then
                 SUCCESS=true
                 TOTAL_OK=$((TOTAL_OK + 1))
-                echo "✅ HTTP $HTTP_CODE"
-                echo "$BODY" | jq '.' || echo "$BODY"
+                echo "✅ HTTP $HTTP_CODE - 성공"
+                
+                # JSON 응답 파싱 (jq가 있으면)
+                if command -v jq &> /dev/null; then
+                  echo "$BODY" | jq '.' || echo "$BODY"
+                  # 처리된 키워드 수 추출 (응답에 포함된 경우)
+                  KEYWORDS_PROCESSED=$(echo "$BODY" | jq -r '.fillDocs?.processed // 0' 2>/dev/null || echo "0")
+                  if [ "$KEYWORDS_PROCESSED" != "0" ] && [ "$KEYWORDS_PROCESSED" != "null" ]; then
+                    TOTAL_KEYWORDS=$((TOTAL_KEYWORDS + KEYWORDS_PROCESSED))
+                    echo "📊 이번 배치 처리: ${KEYWORDS_PROCESSED}개 키워드"
+                  fi
+                else
+                  echo "$BODY"
+                fi
               else
                 RETRY_COUNT=$((RETRY_COUNT + 1))
-                echo "⚠️  HTTP $HTTP_CODE (retry $RETRY_COUNT/$MAX_RETRIES)"
-                echo "Response: $BODY"
-                sleep $((RETRY_COUNT * 3))
+                echo "⚠️  HTTP $HTTP_CODE (재시도 $RETRY_COUNT/$MAX_RETRIES)"
+                echo "응답: $BODY"
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                  sleep $((RETRY_COUNT * 3))
+                fi
               fi
             done
 
             if [ "$SUCCESS" = "false" ]; then
               TOTAL_FAIL=$((TOTAL_FAIL + 1))
-              echo "❌ Call failed after retries"
+              echo "❌ 최종 실패 (재시도 모두 실패)"
             fi
 
-            sleep $INTERVAL_SECONDS
+            # 다음 호출까지 대기
+            if [ $(date +%s) -lt $END_TIME ]; then
+              echo "⏳ ${INTERVAL_SECONDS}초 대기 중..."
+              sleep $INTERVAL_SECONDS
+            fi
           done
 
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
-          echo "📈 Loop summary: OK=$TOTAL_OK FAIL=$TOTAL_FAIL"
-          echo "⏱️  Total execution time: ${DURATION} seconds"
-          echo "🎉 fill_docs completed"
-
-
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📈 실행 요약"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ 성공: $TOTAL_OK회"
+          echo "❌ 실패: $TOTAL_FAIL회"
+          if [ $TOTAL_KEYWORDS -gt 0 ]; then
+            echo "📊 총 처리된 키워드: ${TOTAL_KEYWORDS}개"
+          fi
+          echo "⏱️  총 실행 시간: ${DURATION}초"
+          echo "🎉 문서수 수집 작업 완료!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
