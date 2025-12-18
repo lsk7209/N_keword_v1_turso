@@ -6,7 +6,7 @@ import { keyManager } from '@/utils/key-manager';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-    const db = getServiceSupabase();
+    const db = getTursoClient();
 
     try {
         const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

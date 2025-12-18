@@ -250,11 +250,17 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
             return {
                 id: original.id,
                 keyword: keyword,
+                total_search_cnt: original.total_search_cnt || 0,
                 total_doc_cnt: -1, // Error Flag
+                blog_doc_cnt: 0,
+                cafe_doc_cnt: 0,
+                web_doc_cnt: 0,
+                news_doc_cnt: 0,
+                golden_ratio: 0,
                 tier: 'ERROR',
                 updated_at: new Date().toISOString()
             };
-        }).filter(Boolean);
+        }).filter((item): item is NonNullable<typeof item> => item !== null);
 
         const updates = [...successUpdates, ...failureUpdates];
         const now = getCurrentTimestamp();
