@@ -1,5 +1,5 @@
 
-import { createClient } from '@supabase/supabase-js';
+import { getTursoClient } from '@/utils/turso';
 import { Activity, Database, Layers, Search, TrendingUp, AlertCircle, KeyRound } from 'lucide-react';
 import Link from 'next/link';
 import { keyManager } from '@/utils/key-manager';
@@ -51,42 +51,44 @@ export default async function MonitorPage() {
     let docsFilled24h = 0;
 
     try {
-        // Use Service Role Key if available, otherwise fallback to Anon Key
-        const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co').trim();
-        const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder').trim();
-
-        const adminDb = createClient(supabaseUrl, supabaseKey);
+        const db = getTursoClient();
+        const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
         // 1. Fetch Stats in parallel
-        const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const [
-            { count: totalCount },
-            { count: analyzedCount },
-            { count: expandedCount },
-            { count: platinumCountResult },
-            { count: goldCountResult },
-            { count: newKeywords24hCount },
-            { count: docsFilled24hCount },
-            { data: logs }
+            totalResult,
+            analyzedResult,
+            expandedResult,
+            platinumResult,
+            goldResult,
+            newKeywords24hResult,
+            docsFilled24hResult,
+            logsResult
         ] = await Promise.all([
-            adminDb.from('keywords').select('*', { count: 'exact', head: true }),
-            adminDb.from('keywords').select('*', { count: 'exact', head: true }).not('total_doc_cnt', 'is', null),
-            adminDb.from('keywords').select('*', { count: 'exact', head: true }).eq('is_expanded', true),
-            adminDb.from('keywords').select('*', { count: 'exact', head: true }).eq('tier', 'PLATINUM'),
-            adminDb.from('keywords').select('*', { count: 'exact', head: true }).eq('tier', 'GOLD'),
-            adminDb.from('keywords').select('*', { count: 'exact', head: true }).gte('created_at', since24h),
-            adminDb.from('keywords').select('*', { count: 'exact', head: true }).not('total_doc_cnt', 'is', null).gte('updated_at', since24h),
-            adminDb.from('keywords').select('*').order('created_at', { ascending: false }).limit(10)
+            db.execute('SELECT COUNT(*) as count FROM keywords'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NOT NULL'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 1'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['PLATINUM']),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['GOLD']),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE created_at >= ?', [since24h]),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NOT NULL AND updated_at >= ?', [since24h]),
+            db.execute('SELECT * FROM keywords ORDER BY created_at DESC LIMIT 10')
         ]);
 
-        total = totalCount || 0;
-        analyzed = analyzedCount || 0;
-        expanded = expandedCount || 0;
-        platinumCount = platinumCountResult || 0;
-        goldCount = goldCountResult || 0;
-        newKeywords24h = newKeywords24hCount || 0;
-        docsFilled24h = docsFilled24hCount || 0;
-        recentLogs = logs || [];
+        total = (totalResult.rows[0]?.count as number) || 0;
+        analyzed = (analyzedResult.rows[0]?.count as number) || 0;
+        expanded = (expandedResult.rows[0]?.count as number) || 0;
+        platinumCount = (platinumResult.rows[0]?.count as number) || 0;
+        goldCount = (goldResult.rows[0]?.count as number) || 0;
+        newKeywords24h = (newKeywords24hResult.rows[0]?.count as number) || 0;
+        docsFilled24h = (docsFilled24hResult.rows[0]?.count as number) || 0;
+        recentLogs = logsResult.rows.map(row => ({
+            id: row.id,
+            keyword: row.keyword,
+            total_search_cnt: row.total_search_cnt,
+            tier: row.tier,
+            created_at: row.created_at
+        }));
         pendingDocs = Math.max(total - analyzed, 0);
 
     } catch (e: any) {
@@ -105,7 +107,7 @@ export default async function MonitorPage() {
                     <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
                     <h1 className="text-xl font-bold">오류 발생</h1>
                     <p className="text-zinc-500 break-words">{errorMsg}</p>
-                    <p className="text-sm text-zinc-400">Vercel 환경변수(SUPABASE_SERVICE_ROLE_KEY 또는 NEXT_PUBLIC_SUPABASE_URL)를 확인해주세요.</p>
+                    <p className="text-sm text-zinc-400">Vercel 환경변수(TURSO_DATABASE_URL 또는 TURSO_AUTH_TOKEN)를 확인해주세요.</p>
                     <Link href="/" className="inline-block mt-4 px-4 py-2 bg-zinc-900 text-white rounded-lg">홈으로 이동</Link>
                 </div>
             </div>
