@@ -7,29 +7,16 @@ import { Database } from 'lucide-react';
 
 export default function DataPage() {
     const [sort, setSort] = useState('search_desc');
-    const [page, setPage] = useState(1);
-    const pageSize = 100;
     const [isExportingAll, setIsExportingAll] = useState(false);
 
     const onChangeSort = (nextSort: string) => {
         setSort(nextSort);
-        setPage(1);
-    };
-
-    const downloadExcelCurrentPage = () => {
-        const cursor = (page - 1) * pageSize;
-        const params = new URLSearchParams({
-            cursor: String(cursor),
-            limit: String(pageSize),
-            sort,
-        });
-        window.location.href = `/api/keywords/export?${params.toString()}`;
     };
 
     const downloadExcelFirstPage = () => {
         const params = new URLSearchParams({
-            cursor: '0',
-            limit: String(pageSize),
+            page: '1',
+            limit: '100',
             sort,
         });
         window.location.href = `/api/keywords/export?${params.toString()}`;
@@ -103,16 +90,10 @@ export default function DataPage() {
                     <div className="flex flex-wrap gap-2 justify-between items-center">
                         <div className="flex flex-wrap gap-2">
                             <button
-                                onClick={downloadExcelCurrentPage}
-                                className="px-4 py-2 rounded-md text-sm font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700"
-                            >
-                                엑셀 내보내기 (현재 페이지 100개)
-                            </button>
-                            <button
                                 onClick={downloadExcelFirstPage}
                                 className="px-4 py-2 rounded-md text-sm font-medium transition-colors bg-slate-700 text-white hover:bg-slate-800"
                             >
-                                엑셀 내보내기 (정렬 1페이지 100개)
+                                엑셀 내보내기 (1페이지 100개)
                             </button>
                             <button
                                 onClick={downloadExcelAll}
@@ -126,13 +107,13 @@ export default function DataPage() {
                         <div className="flex flex-wrap gap-2 justify-end">
                         <button
                             onClick={() => onChangeSort('search_desc')}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'search_desc' ? 'bg-black text-white dark:bg-white dark:text-black' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50'}`}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'search_desc' ? 'bg-black text-white dark:bg-white dark:text-black' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-800'}`}
                         >
                             전체 조회 (검색량순)
                         </button>
                         <button
                             onClick={() => onChangeSort(sort === 'tier_desc' ? 'tier_asc' : 'tier_desc')}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'tier_desc' || sort === 'tier_asc' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50'}`}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'tier_desc' || sort === 'tier_asc' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-800'}`}
                         >
                             💎 등급순 {sort === 'tier_asc' ? '↑' : '↓'}
                         </button>
@@ -145,7 +126,7 @@ export default function DataPage() {
                             <button
                                 key={item.key}
                                 onClick={() => onChangeSort(item.key)}
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === item.key ? 'bg-emerald-600 text-white' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50'}`}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === item.key ? 'bg-emerald-600 text-white' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-800'}`}
                             >
                                 {item.label}
                             </button>
@@ -155,7 +136,7 @@ export default function DataPage() {
 
 
 
-                    <KeywordList sort={sort} page={page} pageSize={pageSize} onPageChange={setPage} />
+                    <KeywordList sort={sort} />
                 </div>
             </div>
         </main>

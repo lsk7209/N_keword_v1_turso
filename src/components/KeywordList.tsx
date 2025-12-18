@@ -1,12 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { useRef, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Loader2, ChevronDown } from 'lucide-react';
 
-// Fetcher function
-const fetchKeywords = async ({ cursor = 0, limit = 100, sort = 'search_desc' }: { cursor: number; limit: number; sort: string }) => {
-    const res = await fetch(`/api/keywords?cursor=${cursor}&limit=${limit}&sort=${sort}`);
+// Fetcher function - page-based pagination
+const fetchKeywords = async ({ page = 1, limit = 100, sort = 'search_desc' }: { page: number; limit: number; sort: string }) => {
+    const res = await fetch(`/api/keywords?page=${page}&limit=${limit}&sort=${sort}`);
     if (!res.ok) throw new Error('Failed to fetch');
     return res.json();
 };
@@ -34,40 +33,64 @@ interface Keyword {
 
 export default function KeywordList({
     sort,
-    page,
-    pageSize,
-    onPageChange
 }: {
     sort: string;
-    page: number;
-    pageSize: number;
-    onPageChange: (nextPage: number) => void;
 }) {
+    const [keywords, setKeywords] = useState<Keyword[]>([]);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [total, setTotal] = useState(0);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const parentRef = useRef<HTMLDivElement>(null);
+    const pageSize = 100;
 
-    const {
-        data,
-        status,
-        isFetching
-    } = useQuery({
-        queryKey: ['keywords', sort, page, pageSize],
-        queryFn: () => fetchKeywords({ cursor: (page - 1) * pageSize, limit: pageSize, sort }),
-        staleTime: 30_000,
-    });
-
-    const rows: Keyword[] = data?.data || [];
-    const total: number = typeof data?.total === 'number' ? data.total : 0;
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
+    // Initial load
     useEffect(() => {
-        // When page changes, scroll back to top of list for better UX.
-        parentRef.current?.scrollTo({ top: 0 });
-    }, [page, sort]);
+        const loadInitialData = async () => {
+            setIsLoading(true);
+            setError(null);
+            try {
+                const result = await fetchKeywords({ page: 1, limit: pageSize, sort });
+                setKeywords(result.data || []);
+                setTotal(result.total || 0);
+                setHasMore(result.data && result.data.length === pageSize);
+                setCurrentPage(1);
+            } catch (err: any) {
+                setError(err.message || '데이터를 불러오는 중 오류가 발생했습니다');
+            } finally {
+                setIsLoading(false);
+            }
+        };
 
-    if (status === 'pending') return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-primary" /></div>;
-    if (status === 'error') return <div className="p-10 text-red-500">데이터를 불러오는 중 오류가 발생했습니다</div>;
+        loadInitialData();
+    }, [sort]);
 
-    // Fixed widths for columns - using fixed widths for strict alignment
+    // Load more function
+    const loadMore = async () => {
+        if (isLoadingMore || !hasMore) return;
+
+        setIsLoadingMore(true);
+        try {
+            const nextPage = currentPage + 1;
+            const result = await fetchKeywords({ page: nextPage, limit: pageSize, sort });
+            
+            if (result.data && result.data.length > 0) {
+                setKeywords(prev => [...prev, ...result.data]);
+                setCurrentPage(nextPage);
+                setHasMore(result.data.length === pageSize);
+            } else {
+                setHasMore(false);
+            }
+        } catch (err: any) {
+            setError(err.message || '추가 데이터를 불러오는 중 오류가 발생했습니다');
+        } finally {
+            setIsLoadingMore(false);
+        }
+    };
+
+    // Fixed widths for columns
     const colWidths = {
         keyword: 'w-[200px] md:w-[240px]',
         search: 'w-[110px]',
@@ -80,7 +103,7 @@ export default function KeywordList({
     };
 
     const HeaderCell = ({ label, width, align = 'right' }: { label: string; width: string; align?: 'left' | 'center' | 'right' }) => (
-        <div className={`${width} shrink-0 px-2 py-3 text-${align} font-semibold text-zinc-500 uppercase tracking-wider`}>
+        <div className={`${width} shrink-0 px-2 py-3 text-${align} font-semibold text-zinc-500 uppercase tracking-wider text-xs sm:text-sm`}>
             {label}
         </div>
     );
@@ -98,46 +121,51 @@ export default function KeywordList({
         className?: string;
         title?: string;
     }) => (
-        <div className={`${width} shrink-0 px-2 py-2 text-${align} tabular-nums text-zinc-600 dark:text-zinc-400 truncate ${className}`} title={title}>
+        <div className={`${width} shrink-0 px-2 py-2 text-${align} tabular-nums text-zinc-600 dark:text-zinc-400 truncate text-xs sm:text-sm ${className}`} title={title}>
             {value}
         </div>
     );
 
-    return (
-        <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-sm border border-zinc-200 dark:border-zinc-800 flex flex-col h-[calc(100vh-200px)]">
-            {/* Pagination */}
-            <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                    페이지당 <span className="font-semibold text-zinc-700 dark:text-zinc-200">{pageSize}</span>개 · 총{' '}
-                    <span className="font-semibold text-zinc-700 dark:text-zinc-200">{total.toLocaleString()}</span>개
-                    {isFetching ? <span className="ml-2">불러오는 중...</span> : null}
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => onPageChange(Math.max(1, page - 1))}
-                        disabled={page <= 1}
-                        className="px-3 py-1.5 rounded-md text-xs font-medium border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 disabled:opacity-50"
-                    >
-                        이전
-                    </button>
-                    <div className="text-xs tabular-nums text-zinc-600 dark:text-zinc-300">
-                        {page.toLocaleString()} / {totalPages.toLocaleString()}
-                    </div>
-                    <button
-                        onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-                        disabled={page >= totalPages}
-                        className="px-3 py-1.5 rounded-md text-xs font-medium border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 disabled:opacity-50"
-                    >
-                        다음
-                    </button>
+    if (isLoading) {
+        return (
+            <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-sm border border-zinc-200 dark:border-zinc-800 flex items-center justify-center h-[calc(100vh-200px)]">
+                <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
+                    <p className="text-sm text-zinc-500">데이터를 불러오는 중...</p>
                 </div>
             </div>
+        );
+    }
 
-            {/* Scrollable Container for both Header and List */}
+    if (error) {
+        return (
+            <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-sm border border-zinc-200 dark:border-zinc-800 p-10 text-center">
+                <p className="text-red-500 text-sm">{error}</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-sm border border-zinc-200 dark:border-zinc-800 flex flex-col h-[calc(100vh-200px)]">
+            {/* Header Info */}
+            <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                <div className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400">
+                    표시 중: <span className="font-semibold text-zinc-700 dark:text-zinc-200">{keywords.length.toLocaleString()}</span>개 / 
+                    총 <span className="font-semibold text-zinc-700 dark:text-zinc-200">{total.toLocaleString()}</span>개
+                </div>
+                {isLoadingMore && (
+                    <div className="flex items-center gap-2 text-xs text-zinc-500">
+                        <Loader2 className="animate-spin w-4 h-4" />
+                        <span>추가 데이터 불러오는 중...</span>
+                    </div>
+                )}
+            </div>
+
+            {/* Scrollable Container */}
             <div className="flex-1 overflow-auto" ref={parentRef}>
-                <div className="min-w-max"> {/* Force horizontal availability to fit all fixed columns */}
+                <div className="min-w-max">
                     {/* Header */}
-                    <div className="flex items-center bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 text-[10px] sm:text-xs sticky top-0 z-20">
+                    <div className="flex items-center bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 sticky top-0 z-20">
                         <HeaderCell label="키워드" width={colWidths.keyword} align="left" />
                         <HeaderCell label="총검색량" width={colWidths.search} />
                         <HeaderCell label="블로그" width={colWidths.doc} />
@@ -158,29 +186,41 @@ export default function KeywordList({
 
                     {/* List */}
                     <div>
-                        {rows.length === 0 ? (
-                            <div className="p-10 text-sm text-zinc-500 dark:text-zinc-400">표시할 데이터가 없습니다.</div>
+                        {keywords.length === 0 ? (
+                            <div className="p-10 text-sm text-zinc-500 dark:text-zinc-400 text-center">
+                                표시할 데이터가 없습니다.
+                            </div>
                         ) : (
-                            rows.map((post) => (
+                            keywords.map((post) => (
                                 <div
                                     key={post.id || post.keyword}
-                                    className="flex items-center hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors border-b border-zinc-100 dark:border-zinc-800 text-xs sm:text-sm"
+                                    className="flex items-center hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors border-b border-zinc-100 dark:border-zinc-800"
                                 >
-                                    <DataCell value={post.keyword} width={colWidths.keyword} align="left" className="font-medium text-zinc-900 dark:text-zinc-100" title={post.keyword} />
+                                    <DataCell 
+                                        value={post.keyword} 
+                                        width={colWidths.keyword} 
+                                        align="left" 
+                                        className="font-medium text-zinc-900 dark:text-zinc-100" 
+                                        title={post.keyword} 
+                                    />
                                     <DataCell value={post.total_search_cnt?.toLocaleString()} width={colWidths.search} />
                                     <DataCell value={post.blog_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                     <DataCell value={post.cafe_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                     <DataCell value={post.web_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                     <DataCell value={post.news_doc_cnt?.toLocaleString()} width={colWidths.doc} />
-                                    <DataCell value={typeof post.golden_ratio === 'number' ? post.golden_ratio.toFixed(2) : ''} width={colWidths.ratio} className="font-semibold text-emerald-600" />
+                                    <DataCell 
+                                        value={typeof post.golden_ratio === 'number' ? post.golden_ratio.toFixed(2) : ''} 
+                                        width={colWidths.ratio} 
+                                        className="font-semibold text-emerald-600" 
+                                    />
                                     <div className={`${colWidths.tier} flex justify-center`}>
                                         <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold 
-                                            ${post.tier === 'PLATINUM' ? 'bg-cyan-100 text-cyan-700' :
-                                                post.tier === 'GOLD' ? 'bg-yellow-100 text-yellow-700' :
-                                                    post.tier === 'SILVER' ? 'bg-slate-100 text-slate-700' :
-                                                        post.tier === 'ERROR' ? 'bg-red-100 text-red-700' :
-                                                            'bg-orange-50 text-orange-800'}`}>
-                                            {post.tier}
+                                            ${post.tier === 'PLATINUM' ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300' :
+                                                post.tier === 'GOLD' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' :
+                                                    post.tier === 'SILVER' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' :
+                                                        post.tier === 'ERROR' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' :
+                                                            'bg-orange-50 text-orange-800 dark:bg-orange-900 dark:text-orange-300'}`}>
+                                            {post.tier || 'UNRANKED'}
                                         </span>
                                     </div>
                                     <DataCell value={post.pc_search_cnt?.toLocaleString()} width={colWidths.search} />
@@ -197,6 +237,37 @@ export default function KeywordList({
                     </div>
                 </div>
             </div>
+
+            {/* Load More Button */}
+            {hasMore && (
+                <div className="px-4 py-4 border-t border-zinc-200 dark:border-zinc-800 flex justify-center">
+                    <button
+                        onClick={loadMore}
+                        disabled={isLoadingMore}
+                        className="px-6 py-3 rounded-lg text-sm font-medium transition-all duration-200 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm hover:shadow-md"
+                    >
+                        {isLoadingMore ? (
+                            <>
+                                <Loader2 className="animate-spin w-4 h-4" />
+                                <span>불러오는 중...</span>
+                            </>
+                        ) : (
+                            <>
+                                <ChevronDown className="w-4 h-4" />
+                                <span>100개 더 보기</span>
+                            </>
+                        )}
+                    </button>
+                </div>
+            )}
+
+            {!hasMore && keywords.length > 0 && (
+                <div className="px-4 py-3 border-t border-zinc-200 dark:border-zinc-800 text-center">
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        모든 데이터를 불러왔습니다. ({keywords.length.toLocaleString()}개)
+                    </p>
+                </div>
+            )}
         </div>
     );
 }

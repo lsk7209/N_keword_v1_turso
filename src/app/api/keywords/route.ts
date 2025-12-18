@@ -24,8 +24,10 @@ export async function GET(req: NextRequest) {
         }
     }
 
-    const cursor = parseInt(searchParams.get('cursor') || '0');
-    const limit = parseInt(searchParams.get('limit') || '50');
+    // Support both cursor-based and page-based pagination
+    const page = parseInt(searchParams.get('page') || '0');
+    const cursor = page > 0 ? (page - 1) * 100 : parseInt(searchParams.get('cursor') || '0');
+    const limit = parseInt(searchParams.get('limit') || '100');
     const sort = searchParams.get('sort') || 'search_desc'; // search_desc, opp_desc, cafe_asc, blog_asc, web_asc, news_asc, tier_desc
     // Filters could be added here
 
