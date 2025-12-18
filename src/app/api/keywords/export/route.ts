@@ -25,7 +25,9 @@ export async function GET(req: NextRequest) {
         }
     }
 
-    const cursor = parseInt(searchParams.get('cursor') || '0');
+    // Support both cursor-based and page-based pagination
+    const page = parseInt(searchParams.get('page') || '0');
+    const cursor = page > 0 ? (page - 1) * 100 : parseInt(searchParams.get('cursor') || '0');
     // Allow larger chunks for "full export" parts, but keep it bounded for Vercel/time/memory safety.
     const rawLimit = parseInt(searchParams.get('limit') || '100');
     const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(5000, rawLimit)) : 100;
@@ -33,12 +35,28 @@ export async function GET(req: NextRequest) {
     const part = parseInt(searchParams.get('part') || '1');
 
     const db = getTursoClient();
-    const requiresDocs = ['cafe_asc', 'blog_asc', 'web_asc', 'news_asc', 'tier_desc', 'tier_asc'].includes(sort);
+    // 문서수가 필요한 정렬: 등급순, 카페/블로그/웹/뉴스 적은순 (전체 조회 제외)
+    const requiresDocs = ['tier_desc', 'tier_asc', 'cafe_asc', 'blog_asc', 'web_asc', 'news_asc'].includes(sort);
 
-    // Build WHERE clause
+    // Build WHERE clause (keywords/route.ts와 동일한 로직)
     let whereClause = '';
     if (requiresDocs) {
-        whereClause = 'WHERE total_doc_cnt IS NOT NULL';
+        if (sort === 'cafe_asc') {
+            // 카페 적은순: 카페 문서수가 0이 아닌 것만 (NULL도 제외)
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND cafe_doc_cnt > 0';
+        } else if (sort === 'blog_asc') {
+            // 블로그 적은순: 블로그 문서수가 0이 아닌 것만
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND blog_doc_cnt > 0';
+        } else if (sort === 'web_asc') {
+            // 웹 적은순: 웹 문서수가 0이 아닌 것만
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND web_doc_cnt > 0';
+        } else if (sort === 'news_asc') {
+            // 뉴스 적은순: 뉴스 문서수가 0이 아닌 것만
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND news_doc_cnt > 0';
+        } else {
+            // 등급순: 문서수가 있는 것만 (total_doc_cnt IS NOT NULL)
+            whereClause = 'WHERE total_doc_cnt IS NOT NULL';
+        }
     }
 
     // Build ORDER BY clause
@@ -121,7 +139,7 @@ export async function GET(req: NextRequest) {
 
     // Add UTF-8 BOM so Excel opens Korean reliably
     const csv = `\ufeff${lines.join('\n')}`;
-    const page = Math.floor(cursor / Math.max(1, limit)) + 1;
+    const calculatedPage = page > 0 ? page : Math.floor(cursor / Math.max(1, limit)) + 1;
     const safePart = Number.isFinite(part) ? Math.max(1, Math.min(99999, part)) : 1;
     const filename = nextCursor !== null
         ? `keywords_export_part${safePart}_limit${limit}_sort_${sort}.csv`
