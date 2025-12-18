@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
     // Filters could be added here
 
     const db = getTursoClient();
-    const requiresDocs = ['cafe_asc', 'blog_asc', 'web_asc', 'news_asc', 'tier_desc', 'tier_asc'].includes(sort);
+    // 문서수가 필요한 정렬: 등급순, 카페/블로그/웹/뉴스 적은순 (전체 조회 제외)
+    const requiresDocs = ['tier_desc', 'tier_asc', 'cafe_asc', 'blog_asc', 'web_asc', 'news_asc'].includes(sort);
 
     // Build WHERE clause
     let whereClause = '';
