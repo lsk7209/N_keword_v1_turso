@@ -45,11 +45,23 @@ const turso = createTursoClient({
 });
 
 async function migrateKeywords() {
-    console.log('🔄 키워드 데이터 마이그레이션 시작...');
+    console.log('🔄 키워드 데이터 마이그레이션 시작...\n');
 
-    let offset = 0;
+    // 이미 마이그레이션된 키워드 수 확인 (이어서 진행)
+    const existingCountResult = await turso.execute({
+        sql: 'SELECT COUNT(*) as count FROM keywords WHERE total_search_cnt >= 1000'
+    });
+    const existingCount = existingCountResult.rows[0]?.count as number || 0;
+    
+    let offset = existingCount; // 이미 마이그레이션된 수만큼 offset 건너뛰기
     const batchSize = 1000;
     let totalMigrated = 0;
+    let totalSkipped = 0;
+
+    if (existingCount > 0) {
+        console.log(`📊 이미 마이그레이션된 키워드: ${existingCount.toLocaleString()}개`);
+        console.log(`⏩ ${existingCount.toLocaleString()}개 건너뛰고 이어서 진행합니다...\n`);
+    }
 
     while (true) {
         // Supabase에서 데이터 가져오기 (총검색량 1000 이상만)
@@ -82,7 +94,8 @@ async function migrateKeywords() {
                 });
 
                 if (existing.rows.length > 0) {
-                    // 업데이트
+                    // 이미 존재하면 업데이트 (중복이지만 최신 데이터로 갱신)
+                    totalSkipped++;
                     await turso.execute({
                         sql: `UPDATE keywords SET 
                             total_search_cnt = ?, pc_search_cnt = ?, mo_search_cnt = ?,
@@ -175,7 +188,10 @@ async function migrateKeywords() {
         }
     }
 
-    console.log(`✅ 총 ${totalMigrated}개 키워드 마이그레이션 완료`);
+    console.log(`\n✅ 마이그레이션 완료!`);
+    console.log(`   - 새로 추가: ${totalMigrated.toLocaleString()}개`);
+    console.log(`   - 이미 존재 (업데이트): ${totalSkipped.toLocaleString()}개`);
+    console.log(`   - 총 처리: ${(totalMigrated + totalSkipped).toLocaleString()}개`);
     return totalMigrated;
 }
 
