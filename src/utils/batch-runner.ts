@@ -88,7 +88,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 16, isTurboMode ? 8 : 2); // match 4 AD keys (can reuse)
     const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 300, isTurboMode ? 100 : 30); // 터보: 100개, 일반: 30개
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 32, isTurboMode ? 24 : 6); // 터보: 24개 (29개 API 키 최적화)
-    const MIN_SEARCH_VOLUME = clampInt(options.minSearchVolume, 0, 50_000, isTurboMode ? 50 : 500); // 터보: 롱테일 포함 aggressively
+    const MIN_SEARCH_VOLUME = clampInt(options.minSearchVolume, 0, 50_000, 1000); // 최소 검색량 1000 (터보/일반 모드 공통)
 
     console.log(`[Batch] Mode: ${isTurboMode ? 'TURBO (Max API Usage)' : 'NORMAL'}, Task: ${task}, ExpandBatch: ${EXPAND_BATCH}, ExpandConcurrency: ${EXPAND_CONCURRENCY}, FillDocs: ${FILL_DOCS_BATCH}, FillConcurrency: ${FILL_DOCS_CONCURRENCY}, MaxRunMs: ${maxRunMs}`);
 
