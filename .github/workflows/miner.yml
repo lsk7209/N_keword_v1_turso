@@ -41,9 +41,9 @@ jobs:
           # Tuning knobs for Related Keywords (Ad API):
           # - expandBatch=44 => ~44 Ad API calls per miner execution (1 call per seed)
           # - expandConcurrency=4 => match 4 Ad keys
-          # - minSearchVolume=0 => don't block by volume; maximize throughput
+          # - minSearchVolume=1000 => 최소 검색량 1000 이상만 수집
           # Target Ad calls/day (upper bound): (120/30=4 calls/run) * 44 * 288 ~= 50,688
-          QUERY="task=expand&expandBatch=44&expandConcurrency=4&minSearchVolume=0&maxRunMs=55000"
+          QUERY="task=expand&expandBatch=44&expandConcurrency=4&minSearchVolume=1000&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
