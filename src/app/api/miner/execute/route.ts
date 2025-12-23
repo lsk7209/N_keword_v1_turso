@@ -11,11 +11,12 @@ export async function GET(req: NextRequest) {
     // 1. Auth Check
     const authHeader = req.headers.get('Authorization'); // Support Bearer
     const cronHeader = req.headers.get('CRON_SECRET');
+    const vercelCronHeader = req.headers.get('x-vercel-cron'); // Vercel Cron 자동 인증
     const queryKey = req.nextUrl.searchParams.get('key');
     const secret = process.env.CRON_SECRET || 'manual-override-key';
 
-    // Flexible Auth: Cron Header, Query Param, or Bearer Token (if we add it later)
-    const isAuthorized = (cronHeader === secret) || (queryKey === secret) || (authHeader === `Bearer ${secret}`);
+    // Flexible Auth: Vercel Cron (자동), Cron Header, Query Param, or Bearer Token
+    const isAuthorized = vercelCronHeader === '1' || (cronHeader === secret) || (queryKey === secret) || (authHeader === `Bearer ${secret}`);
 
     if (!isAuthorized) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

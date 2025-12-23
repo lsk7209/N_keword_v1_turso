@@ -4,6 +4,16 @@
             "maxDuration": 60
         }
     },
+    "crons": [
+        {
+            "path": "/api/miner/execute?task=expand&expandBatch=20&expandConcurrency=2&minSearchVolume=1000&maxRunMs=55000",
+            "schedule": "*/10 * * * *"
+        },
+        {
+            "path": "/api/miner/execute?task=fill_docs&fillBatch=30&fillConcurrency=6&maxRunMs=55000",
+            "schedule": "2-59/10 * * * *"
+        }
+    ],
     "headers": [
         {
             "source": "/(.*)",
