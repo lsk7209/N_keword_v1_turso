@@ -52,10 +52,11 @@ async function migrateKeywords() {
     let totalMigrated = 0;
 
     while (true) {
-        // Supabase에서 데이터 가져오기
+        // Supabase에서 데이터 가져오기 (총검색량 1000 이상만)
         const { data, error } = await supabase
             .from('keywords')
             .select('*')
+            .gte('total_search_cnt', 1000)  // 총검색량 1000 이상만
             .range(offset, offset + batchSize - 1)
             .order('created_at', { ascending: true });
 
