@@ -28,22 +28,24 @@ jobs:
           START_TIME=$(date +%s)
           echo "🚀 Starting mining batch at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
-          # Aggressive loop:
+          # 최대 수집량 최적화:
           # - GitHub schedule minimum is 5 minutes.
           # - Inside each run, repeatedly call the miner API for ~3 minutes to maximize daily throughput.
-          # - Keep each API call within Vercel 60s by using smaller batches + controlled concurrency.
-          # Goal: ~50k Ad API calls/day (seed requests) while reducing GitHub/Vercel overhead.
+          # - Keep each API call within Vercel 60s by using controlled concurrency.
+          # Goal: 최대 키워드 수집량 달성
           # calls/day ~= (RUN_FOR_SECONDS/INTERVAL_SECONDS) * 288
-          RUN_FOR_SECONDS=120
-          INTERVAL_SECONDS=30
+          RUN_FOR_SECONDS=180  # 3분간 실행 (120 → 180)
+          INTERVAL_SECONDS=20  # 20초마다 호출 (30 → 20, 더 자주 호출)
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # Tuning knobs for Related Keywords (Ad API):
-          # - expandBatch=44 => ~44 Ad API calls per miner execution (1 call per seed)
-          # - expandConcurrency=4 => match 4 Ad keys
+          # 최대 수집량 최적화 파라미터:
+          # - expandBatch=100 => ~100 Ad API calls per miner execution (44 → 100)
+          # - expandConcurrency=8 => match 8 Ad keys (4 → 8, 동시 처리 증가)
           # - minSearchVolume=1000 => 최소 검색량 1000 이상만 수집
-          # Target Ad calls/day (upper bound): (120/30=4 calls/run) * 44 * 288 ~= 50,688
-          QUERY="task=expand&expandBatch=44&expandConcurrency=4&minSearchVolume=1000&maxRunMs=55000"
+          # Target: (180/20=9 calls/run) * 100 * 288 = 259,200 Ad calls/day
+          # 예상 키워드 수집: 259,200 시드 × 20개 키워드/시드 = 5,184,000개/일 (이론상)
+          # 실제 안전: 약 150,000-200,000개/일
+          QUERY="task=expand&expandBatch=100&expandConcurrency=8&minSearchVolume=1000&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
