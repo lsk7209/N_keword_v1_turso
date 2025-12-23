@@ -199,21 +199,43 @@ export async function processSeedKeyword(
     // 6. Bulk Upsert
     let totalSaved = 0;
 
-    // A. Rows with Document Counts (Complete Data) -> Standard Upsert (Update allowed)
+    // A. Rows with Document Counts (Complete Data) -> Batch Upsert (최적화)
     if (rowsToInsert.length > 0) {
         const now = getCurrentTimestamp();
-        for (const row of rowsToInsert) {
-            try {
-                // Check if keyword exists
-                const checkResult = await db.execute({
-                    sql: 'SELECT id FROM keywords WHERE keyword = ?',
-                    args: [row.keyword]
-                });
+        
+        try {
+            // 1. 모든 키워드를 한 번에 조회 (배치 읽기 최적화)
+            const keywords = rowsToInsert.map(r => r.keyword);
+            const placeholders = keywords.map(() => '?').join(',');
+            const existingResult = await db.execute({
+                sql: `SELECT id, keyword FROM keywords WHERE keyword IN (${placeholders})`,
+                args: keywords
+            });
+            
+            const existingMap = new Map<string, string>();
+            existingResult.rows.forEach(row => {
+                existingMap.set(row.keyword as string, row.id as string);
+            });
 
-                if (checkResult.rows.length > 0) {
-                    // Update existing
-                    const existingId = checkResult.rows[0].id as string;
-                    await db.execute({
+            // 2. UPDATE와 INSERT 분리
+            const updates: Array<{ id: string; row: any }> = [];
+            const inserts: Array<any> = [];
+
+            for (const row of rowsToInsert) {
+                const existingId = existingMap.get(row.keyword);
+                if (existingId) {
+                    updates.push({ id: existingId, row });
+                } else {
+                    inserts.push(row);
+                }
+            }
+
+            // 3. 배치 UPDATE (50개씩)
+            if (updates.length > 0) {
+                const batchSize = 50;
+                for (let i = 0; i < updates.length; i += batchSize) {
+                    const batch = updates.slice(i, i + batchSize);
+                    const statements = batch.map(({ id, row }) => ({
                         sql: `UPDATE keywords SET 
                             total_search_cnt = ?, pc_search_cnt = ?, mo_search_cnt = ?,
                             pc_click_cnt = ?, mo_click_cnt = ?, click_cnt = ?,
@@ -232,84 +254,110 @@ export async function processSeedKeyword(
                             row.total_doc_cnt, row.blog_doc_cnt || 0, row.cafe_doc_cnt || 0,
                             row.web_doc_cnt || 0, row.news_doc_cnt || 0,
                             row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                            now, existingId
+                            now, id
                         ]
-                    });
-                } else {
-                    // Insert new
-                    const id = generateUUID();
-                    await db.execute({
-                        sql: `INSERT INTO keywords (
-                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                            pc_click_cnt, mo_click_cnt, click_cnt,
-                            pc_ctr, mo_ctr, total_ctr,
-                            comp_idx, pl_avg_depth,
-                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt,
-                            golden_ratio, tier, is_expanded,
-                            created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        args: [
-                            id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                            row.comp_idx || null, row.pl_avg_depth || 0,
-                            row.total_doc_cnt, row.blog_doc_cnt || 0, row.cafe_doc_cnt || 0,
-                            row.web_doc_cnt || 0, row.news_doc_cnt || 0,
-                            row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                            now, now
-                        ]
-                    });
+                    }));
+                    await db.batch(statements);
                 }
-                totalSaved++;
-            } catch (e: any) {
-                console.error(`DB Upsert Error for ${row.keyword}:`, e);
-                throw new Error(`DB Save Failed (Complete): ${e.message}`);
+                totalSaved += updates.length;
             }
+
+            // 4. 배치 INSERT (50개씩)
+            if (inserts.length > 0) {
+                const batchSize = 50;
+                for (let i = 0; i < inserts.length; i += batchSize) {
+                    const batch = inserts.slice(i, i + batchSize);
+                    const statements = batch.map(row => {
+                        const id = generateUUID();
+                        return {
+                            sql: `INSERT INTO keywords (
+                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                pc_click_cnt, mo_click_cnt, click_cnt,
+                                pc_ctr, mo_ctr, total_ctr,
+                                comp_idx, pl_avg_depth,
+                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt,
+                                golden_ratio, tier, is_expanded,
+                                created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            args: [
+                                id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                row.comp_idx || null, row.pl_avg_depth || 0,
+                                row.total_doc_cnt, row.blog_doc_cnt || 0, row.cafe_doc_cnt || 0,
+                                row.web_doc_cnt || 0, row.news_doc_cnt || 0,
+                                row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                                now, now
+                            ]
+                        };
+                    });
+                    await db.batch(statements);
+                }
+                totalSaved += inserts.length;
+            }
+        } catch (e: any) {
+            console.error(`DB Batch Upsert Error:`, e);
+            throw new Error(`DB Save Failed (Complete): ${e.message}`);
         }
     }
 
-    // B. Rows Deferred (Null Docs) -> Insert Only (ignoreDuplicates)
+    // B. Rows Deferred (Null Docs) -> Batch Insert Only (최적화)
     if (rowsDeferred.length > 0) {
         const now = getCurrentTimestamp();
-        for (const row of rowsDeferred) {
-            try {
-                // Check if keyword exists (ignore if exists)
-                const checkResult = await db.execute({
-                    sql: 'SELECT id FROM keywords WHERE keyword = ?',
-                    args: [row.keyword]
-                });
+        try {
+            // 1. 모든 키워드를 한 번에 조회 (배치 읽기 최적화)
+            const keywords = rowsDeferred.map(r => r.keyword);
+            const placeholders = keywords.map(() => '?').join(',');
+            const existingResult = await db.execute({
+                sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
+                args: keywords
+            });
+            
+            const existingSet = new Set<string>();
+            existingResult.rows.forEach(row => {
+                existingSet.add(row.keyword as string);
+            });
 
-                if (checkResult.rows.length === 0) {
-                    // Insert only if not exists
-                    const id = generateUUID();
-                    await db.execute({
-                        sql: `INSERT INTO keywords (
-                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                            pc_click_cnt, mo_click_cnt, click_cnt,
-                            pc_ctr, mo_ctr, total_ctr,
-                            comp_idx, pl_avg_depth,
-                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt,
-                            golden_ratio, tier, is_expanded,
-                            created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        args: [
-                            id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                            row.comp_idx || null, row.pl_avg_depth || 0,
-                            null, 0, 0, 0, 0,
-                            0, row.tier, row.is_expanded ? 1 : 0,
-                            now, now
-                        ]
+            // 2. 존재하지 않는 키워드만 필터링
+            const toInsert = rowsDeferred.filter(row => !existingSet.has(row.keyword));
+
+            // 3. 배치 INSERT (50개씩)
+            if (toInsert.length > 0) {
+                const batchSize = 50;
+                for (let i = 0; i < toInsert.length; i += batchSize) {
+                    const batch = toInsert.slice(i, i + batchSize);
+                    const statements = batch.map(row => {
+                        const id = generateUUID();
+                        return {
+                            sql: `INSERT INTO keywords (
+                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                pc_click_cnt, mo_click_cnt, click_cnt,
+                                pc_ctr, mo_ctr, total_ctr,
+                                comp_idx, pl_avg_depth,
+                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt,
+                                golden_ratio, tier, is_expanded,
+                                created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            args: [
+                                id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                row.comp_idx || null, row.pl_avg_depth || 0,
+                                null, 0, 0, 0, 0,
+                                0, row.tier, row.is_expanded ? 1 : 0,
+                                now, now
+                            ]
+                        };
                     });
-                    totalSaved++;
+                    await db.batch(statements);
                 }
-            } catch (e: any) {
-                console.error(`DB Insert Error for ${row.keyword}:`, e);
-                // Continue with other rows instead of throwing
+                totalSaved += toInsert.length;
             }
+        } catch (e: any) {
+            console.error(`DB Batch Insert Error (Deferred):`, e);
+            // Continue on error (ignore duplicates)
         }
     }
 
