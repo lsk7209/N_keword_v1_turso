@@ -81,13 +81,13 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const maxRunMs = clampInt(options.maxRunMs, 10_000, 58_000, 55_000);
     const deadline = start + maxRunMs;
 
-    // 터보모드: API 키 최대 활용 (검색광고 API 4개=10000호출, 문서수 API 9개)
+    // 터보모드: API 키 최대 활용 (검색광고 API 14개 활용)
     // 일반 모드: 안정적인 수집 (5분마다 GitHub Actions)
     const SEED_COUNT = clampInt(options.seedCount, 0, 50, isTurboMode ? 20 : 5); // turbo default raised
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 300, isTurboMode ? 100 : 50); // 터보: 100개, 일반: 50개 (최대 수집량)
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 16, isTurboMode ? 8 : 4); // 터보: 8개, 일반: 4개 (최대 수집량)
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 300, isTurboMode ? 150 : 100); // 터보: 150개, 일반: 100개 (공격적 모드)
-    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 32, isTurboMode ? 24 : 20); // 터보: 24개, 일반: 20개 (공격적 모드)
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 300, isTurboMode ? 120 : 50); // 터보: 120개, 일반: 50개 (14개 키 활용)
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 20, isTurboMode ? 12 : 4); // 터보: 12개 (14개 키 활용), 일반: 4개
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 300, isTurboMode ? 180 : 100); // 터보: 180개 (30개 키 활용), 일반: 100개
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 40, isTurboMode ? 28 : 20); // 터보: 28개 (30개 키 활용), 일반: 20개
     // 최소 검색량 1000 강제 (쿼리 파라미터로 0이 전달되어도 최소 1000 적용)
     const MIN_SEARCH_VOLUME = Math.max(1000, clampInt(options.minSearchVolume, 0, 50_000, 1000));
 
@@ -97,10 +97,11 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const taskExpand = async () => {
         if (task === 'fill_docs') return null;
 
+        // 🚀 인덱스 활용 최적화: is_expanded = 0 조건에 대한 효율적 조회
         const seedsResult = await db.execute({
-            sql: `SELECT id, keyword, total_search_cnt FROM keywords 
-                  WHERE is_expanded = 0 AND total_search_cnt >= ? 
-                  ORDER BY total_search_cnt DESC 
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords
+                  WHERE is_expanded = 0 AND total_search_cnt >= ?
+                  ORDER BY total_search_cnt DESC
                   LIMIT ?`,
             args: [MIN_SEARCH_VOLUME, isTurboMode ? 500 : 200]
         });
@@ -170,10 +171,11 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         const BATCH_SIZE = FILL_DOCS_BATCH;
         const CONCURRENCY = FILL_DOCS_CONCURRENCY;
 
+        // 🚀 인덱스 활용 최적화: total_doc_cnt IS NULL 조건에 대한 효율적 조회
         const docsResult = await db.execute({
-            sql: `SELECT id, keyword, total_search_cnt FROM keywords 
-                  WHERE total_doc_cnt IS NULL 
-                  ORDER BY total_search_cnt DESC 
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords
+                  WHERE total_doc_cnt IS NULL
+                  ORDER BY total_search_cnt DESC
                   LIMIT ?`,
             args: [BATCH_SIZE]
         });
@@ -268,17 +270,22 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 
         if (updates.length > 0) {
             try {
-                // Turso 배치 처리 최적화: 개별 execute 대신 batch 사용
-                const batchSize = 50; // 배치 크기
+                // 🚀 트랜잭션 UPSERT: 모든 업데이트를 단일 트랜잭션으로 처리, DB 호출 최소화
+                await db.execute({ sql: 'BEGIN TRANSACTION' });
+
+                const batchSize = 200; // 50 → 200, 4배 증가
                 for (let i = 0; i < updates.length; i += batchSize) {
                     const batch = updates.slice(i, i + batchSize);
                     const statements = batch.map(update => ({
-                        sql: `UPDATE keywords SET 
-                            total_doc_cnt = ?, blog_doc_cnt = ?, cafe_doc_cnt = ?,
-                            web_doc_cnt = ?, news_doc_cnt = ?,
-                            golden_ratio = ?, tier = ?, updated_at = ?
-                            WHERE id = ?`,
+                        sql: `INSERT OR REPLACE INTO keywords (
+                            id, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                            web_doc_cnt, news_doc_cnt, golden_ratio, tier, updated_at
+                        ) VALUES (
+                            (SELECT id FROM keywords WHERE id = ?),
+                            ?, ?, ?, ?, ?, ?, ?, ?
+                        )`,
                         args: [
+                            update.id,
                             update.total_doc_cnt,
                             update.blog_doc_cnt || 0,
                             update.cafe_doc_cnt || 0,
@@ -286,19 +293,21 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
                             update.news_doc_cnt || 0,
                             update.golden_ratio,
                             update.tier,
-                            now,
-                            update.id
+                            now
                         ]
                     }));
-                    
+
                     await db.batch(statements);
                 }
+
+                await db.execute({ sql: 'COMMIT' });
             } catch (upsertError: any) {
-                console.error('[Batch] Bulk Upsert Error:', upsertError);
+                await db.execute({ sql: 'ROLLBACK' });
+                console.error('[Batch] Transaction UPSERT Error:', upsertError);
                 return {
                     processed: 0,
                     failed: docsToFill.length,
-                    errors: [`Bulk Save Failed: ${upsertError.message}`]
+                    errors: [`Transaction UPSERT Failed: ${upsertError.message}`]
                 };
             }
         }

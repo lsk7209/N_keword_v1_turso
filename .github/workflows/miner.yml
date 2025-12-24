@@ -38,14 +38,14 @@ jobs:
           INTERVAL_SECONDS=20  # 20초마다 호출 (30 → 20, 더 자주 호출)
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 최대 수집량 최적화 파라미터:
-          # - expandBatch=100 => ~100 Ad API calls per miner execution (44 → 100)
-          # - expandConcurrency=8 => match 8 Ad keys (4 → 8, 동시 처리 증가)
+          # 최대 수집량 최적화 파라미터 (14개 검색광고 API 키 활용):
+          # - expandBatch=120 => ~120 Ad API calls per miner execution (100 → 120)
+          # - expandConcurrency=12 => match 12 Ad keys (8 → 12, 14개 키 활용)
           # - minSearchVolume=1000 => 최소 검색량 1000 이상만 수집
-          # Target: (180/20=9 calls/run) * 100 * 288 = 259,200 Ad calls/day
-          # 예상 키워드 수집: 259,200 시드 × 20개 키워드/시드 = 5,184,000개/일 (이론상)
-          # 실제 안전: 약 150,000-200,000개/일
-          QUERY="task=expand&expandBatch=100&expandConcurrency=8&minSearchVolume=1000&maxRunMs=55000"
+          # Target: (180/20=9 calls/run) * 120 * 288 = 311,040 Ad calls/day
+          # 예상 키워드 수집: 311,040 시드 × 20개 키워드/시드 = 6,220,800개/일 (이론상)
+          # 실제 안전: 약 225,000-300,000개/일 (50-75% 증가)
+          QUERY="task=expand&expandBatch=120&expandConcurrency=12&minSearchVolume=1000&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
