@@ -79,6 +79,53 @@ export async function processSeedKeyword(
     let filtered = candidates.filter((c: any) => c.total_search_cnt >= minSearchVolume && !isBlacklisted(c.originalKeyword));
     filtered.sort((a: any, b: any) => b.total_search_cnt - a.total_search_cnt);
 
+    // 3.5 Deduplication & Stale Check (Smart Skip)
+    // 30일 이내에 업데이트된 키워드는 재수집 제외 (API 절약 및 DB 부하 감소)
+    if (filtered.length > 0) {
+        try {
+            const checkStart = Date.now();
+            const keywordsToCheck = filtered.map(c => c.originalKeyword);
+            const freshKeywordsSet = new Set<string>();
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+            // Chunking for SQL IN clause (safe limit ~100)
+            const chunkSize = 100;
+            const chunks = [];
+            for (let i = 0; i < keywordsToCheck.length; i += chunkSize) {
+                chunks.push(keywordsToCheck.slice(i, i + chunkSize));
+            }
+
+            const checkResults = await Promise.all(chunks.map(async (chunk) => {
+                if (chunk.length === 0) return [];
+                const placeholders = chunk.map(() => '?').join(',');
+                const result = await db.execute({
+                    sql: `SELECT keyword, updated_at FROM keywords WHERE keyword IN (${placeholders})`,
+                    args: chunk
+                });
+                return result.rows;
+            }));
+
+            // Analyze results
+            checkResults.flat().forEach((row: any) => {
+                // If updated_at is recent ( > thirtyDaysAgo), mark as FRESH (Skip)
+                if (row.updated_at && row.updated_at > thirtyDaysAgo) {
+                    freshKeywordsSet.add(row.keyword);
+                }
+            });
+
+            // Filter out fresh keywords
+            const beforeCount = filtered.length;
+            filtered = filtered.filter(c => !freshKeywordsSet.has(c.originalKeyword));
+            const skippedCount = beforeCount - filtered.length;
+
+            if (skippedCount > 0) {
+                console.log(`[MiningEngine] Skipped ${skippedCount} recent (fresh) keywords. Remaining: ${filtered.length}`);
+            }
+        } catch (e) {
+            console.error('[MiningEngine] Smart Deduplication Failed (Proceeding with all):', e);
+        }
+    }
+
     // 3b. Apply Max Limit
     if (maxKeywords > 0 && filtered.length > maxKeywords) {
         console.log(`[MiningEngine] Slicing results from ${filtered.length} to ${maxKeywords}`);
