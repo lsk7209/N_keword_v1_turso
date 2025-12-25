@@ -58,3 +58,4 @@
 - [x] **Parallel Mining**: Optimized `mining-engine.ts` to process document lookups with full concurrency.
 
 
+- [x] **Massive Scale Optimization**: Implemented dynamic concurrency scaling in `batch-runner.ts` to utilize "very many" API keys automatically (up to 300 concurrent requests).

@@ -153,6 +153,10 @@ class KeyManager {
             nextReadyInMs
         };
     }
+
+    public getKeyCount(type: KeyType): number {
+        return type === 'AD' ? this.adKeys.length : this.searchKeys.length;
+    }
 }
 
 // Singleton instance for the duration of the serverless function execution

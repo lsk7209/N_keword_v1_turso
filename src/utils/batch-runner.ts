@@ -2,6 +2,7 @@
 import { getTursoClient, getCurrentTimestamp } from '@/utils/turso';
 import { processSeedKeyword } from '@/utils/mining-engine';
 import { fetchDocumentCount } from '@/utils/naver-api';
+import { keyManager } from '@/utils/key-manager';
 
 type MiningMode = 'NORMAL' | 'TURBO';
 type MiningTask = 'all' | 'expand' | 'fill_docs';
@@ -81,84 +82,155 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const maxRunMs = clampInt(options.maxRunMs, 10_000, 58_000, 55_000);
     const deadline = start + maxRunMs;
 
-    // 터보모드: API 키 최대 활용 (검색광고 API 14개 활용)
-    // 일반 모드: 안정적인 수집 (5분마다 GitHub Actions)
-    const SEED_COUNT = clampInt(options.seedCount, 0, 50, isTurboMode ? 20 : 5); // turbo default raised
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 300, isTurboMode ? 120 : 50); // 터보: 120개, 일반: 50개 (14개 키 활용)
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 20, isTurboMode ? 12 : 4); // 터보: 12개 (14개 키 활용), 일반: 4개
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 300, isTurboMode ? 180 : 100); // 터보: 180개 (30개 키 활용), 일반: 100개
-    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 40, isTurboMode ? 28 : 20); // 터보: 28개 (30개 키 활용), 일반: 20개
+    // 터보모드: API 키 수에 따른 동적 확장 (Aggressive)
+    const searchKeyCount = keyManager.getKeyCount('SEARCH');
+    const adKeyCount = keyManager.getKeyCount('AD');
+
+    // 기본값 설정 (Base settings)
+    let baseExpandConcurrency = isTurboMode ? 12 : 4;
+    let baseFillConcurrency = isTurboMode ? 28 : 20;
+
+    // 키가 매우 많을 경우를 위한 스케일링 (Dynamic Scaling - Aggressive)
+    if (isTurboMode) {
+        // AD Key: 개당 3배 (검색광고 API는 QPS 제한이 덜함)
+        if (adKeyCount > 5) {
+            baseExpandConcurrency = Math.min(100, Math.max(12, adKeyCount * 3));
+        }
+        // Search Key: 개당 5배 (30개 키 -> 150 동시성)
+        // 30 keys * 5 = 150 requests at once. Each takes ~200ms-500ms. 
+        // 150 req / 0.5s = 300 TPS. Naver rate limits might get hit if one key is reused too fast per type.
+        // But we have 4 types (blog, cafe, etc).
+        // Let's go with * 4 to be safe but fast.
+        if (searchKeyCount > 5) {
+            baseFillConcurrency = Math.min(400, Math.max(28, searchKeyCount * 4));
+        }
+    }
+
+    const SEED_COUNT = clampInt(options.seedCount, 0, 50, isTurboMode ? 20 : 5);
+
+    // Concurrency 결정
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 100, baseExpandConcurrency);
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 400, baseFillConcurrency);
+
+    // Batch Size 결정
+    const expandBatchBase = isTurboMode ? (baseExpandConcurrency * 8) : 50;
+    const fillDocsBatchBase = isTurboMode ? (baseFillConcurrency * 10) : 100;
+
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 1000, expandBatchBase);
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 5000, fillDocsBatchBase);
+
     // 최소 검색량 1000 강제 (쿼리 파라미터로 0이 전달되어도 최소 1000 적용)
     const MIN_SEARCH_VOLUME = Math.max(1000, clampInt(options.minSearchVolume, 0, 50_000, 1000));
 
-    console.log(`[Batch] Mode: ${isTurboMode ? 'TURBO (Max API Usage)' : 'NORMAL'}, Task: ${task}, ExpandBatch: ${EXPAND_BATCH}, ExpandConcurrency: ${EXPAND_CONCURRENCY}, FillDocs: ${FILL_DOCS_BATCH}, FillConcurrency: ${FILL_DOCS_CONCURRENCY}, MaxRunMs: ${maxRunMs}`);
+    console.log(`[Batch] Mode: ${isTurboMode ? 'TURBO' : 'NORMAL'}, Keys(S/A): ${searchKeyCount}/${adKeyCount}, Task: ${task}`);
+    console.log(`[Batch] Config: Expand(Batch:${EXPAND_BATCH}, Conc:${EXPAND_CONCURRENCY}), FillDocs(Batch:${FILL_DOCS_BATCH}, Conc:${FILL_DOCS_CONCURRENCY}), MaxRunMs: ${maxRunMs}`);
 
     // === Task 1: EXPAND (Keywords Expansion) ===
     const taskExpand = async () => {
         if (task === 'fill_docs') return null;
 
-        // 🚀 인덱스 활용 최적화: is_expanded = 0 조건에 대한 효율적 조회
-        const seedsResult = await db.execute({
-            sql: `SELECT id, keyword, total_search_cnt FROM keywords
-                  WHERE is_expanded = 0 AND total_search_cnt >= ?
-                  ORDER BY total_search_cnt DESC
-                  LIMIT ?`,
-            args: [MIN_SEARCH_VOLUME, isTurboMode ? 500 : 200]
-        });
+        // 🚀 Atomic Claim: 한 번의 DB 호출로 배치를 선점하고 데이터를 가져옴 (is_expanded = 2 Processing)
+        // Turso/SQLite 'UPDATE ... RETURNING' 지원 활용
+        let seedsData: any[] = [];
+        try {
+            const claimResult = await db.execute({
+                sql: `UPDATE keywords
+                      SET is_expanded = 2
+                      WHERE id IN (
+                          SELECT id FROM keywords
+                          WHERE is_expanded = 0 AND total_search_cnt >= ?
+                          ORDER BY total_search_cnt DESC
+                          LIMIT ?
+                      )
+                      RETURNING id, keyword, total_search_cnt`,
+                args: [MIN_SEARCH_VOLUME, EXPAND_BATCH]
+            });
 
-        const seedsData = seedsResult.rows.map(row => ({
-            id: row.id as string,
-            keyword: row.keyword as string,
-            total_search_cnt: row.total_search_cnt as number
-        }));
+            seedsData = claimResult.rows.map(row => ({
+                id: row.id as string,
+                keyword: row.keyword as string,
+                total_search_cnt: row.total_search_cnt as number
+            }));
+        } catch (e: any) {
+            console.error('[Batch] Expand Claim Failed:', e);
+            return null;
+        }
 
         if (!seedsData || seedsData.length === 0) return null;
 
-        // 검색량 상위 우선 선택 (랜덤 대신)
-        const seeds = seedsData.slice(0, EXPAND_BATCH);
-
-        console.log(`[Batch] EXPAND: Processing up to ${seeds.length} seeds (Concurrency ${EXPAND_CONCURRENCY}, Deadline in ${(deadline - Date.now())}ms, min: ${MIN_SEARCH_VOLUME})`);
+        console.log(`[Batch] EXPAND: Claimed ${seedsData.length} seeds (Concurrency ${EXPAND_CONCURRENCY}, Deadline in ${(deadline - Date.now())}ms)`);
         let stopDueToDeadline = false;
 
-        const expandResults = await mapWithConcurrency(seeds, EXPAND_CONCURRENCY, async (seed) => {
+        const expandResults = await mapWithConcurrency(seedsData, EXPAND_CONCURRENCY, async (seed) => {
             if (Date.now() > (deadline - 2500)) {
                 stopDueToDeadline = true;
-                return { status: 'skipped_deadline', seed: seed.keyword };
+                return { status: 'skipped_deadline', seed };
             }
-
-            // Optimistic lock (best-effort): claim the seed so parallel invocations don't duplicate work
-            const lockResult = await db.execute({
-                sql: 'UPDATE keywords SET is_expanded = 1 WHERE id = ? AND is_expanded = 0',
-                args: [seed.id]
-            });
-
-            if (lockResult.rowsAffected === 0) return { status: 'skipped', seed: seed.keyword };
 
             try {
                 const res = await processSeedKeyword(seed.keyword, 0, true, MIN_SEARCH_VOLUME);
-                // Mark confirmed
-                await db.execute({
-                    sql: 'UPDATE keywords SET is_expanded = 1 WHERE id = ?',
-                    args: [seed.id]
-                });
-                return { status: 'fulfilled', seed: seed.keyword, saved: res.saved };
+                return { status: 'fulfilled', seed, saved: res.saved };
             } catch (e: any) {
                 console.error(`[Batch] Seed Failed: ${seed.keyword} - ${e.message}`);
-                await db.execute({
-                    sql: 'UPDATE keywords SET is_expanded = 1 WHERE id = ?',
-                    args: [seed.id]
-                });
-                return { status: 'rejected', seed: seed.keyword, error: e.message };
+                return { status: 'rejected', seed, error: e.message };
             }
         });
 
+        // 후처리: 성공/실패 상태 업데이트 (Batch Update)
+        const succeededIds = expandResults
+            .filter(r => r.status === 'fulfilled')
+            .map(r => r.seed.id);
+
+        const failedIds = expandResults
+            .filter(r => r.status === 'rejected')
+            // 실패 시 0으로 되돌려 재시도할지, 아니면 1(확장완료/실패)로 처리할지?
+            // 반복적인 실패 방지를 위해 일단 1(완료 간주)로 처리하거나 3(에러) 등 별도 상태가 좋으나
+            // 기존 로직 유지: is_expanded=1
+            .map(r => r.seed.id);
+
+        const allIdsToMarkDone = [...succeededIds, ...failedIds];
+
+        // 🚀 상태 일괄 업데이트 (1번의 DB 호출)
+        if (allIdsToMarkDone.length > 0) {
+            try {
+                // SQLite LIMIT on UPDATE is optional, standard UPDATE IN is safer
+                const placeholders = allIdsToMarkDone.map(() => '?').join(',');
+                await db.execute({
+                    sql: `UPDATE keywords SET is_expanded = 1 WHERE id IN (${placeholders})`,
+                    args: allIdsToMarkDone
+                });
+            } catch (e) {
+                console.error('[Batch] Failed to mark seeds as expanded:', e);
+            }
+        }
+
+        // is_expanded=2(Processing) 상태로 남은(데드라인 스킵 등) 항목들은?
+        // 다음 실행 시 자동으로 처리되거나, 2 상태인건 재시도 로직 필요.
+        // 현재 로직상 스킵된 건 그대로 2로 남음. 
+        // 롤백 필요: 스킵된 항목은 0으로 되돌려야 함.
+        const skippedIds = expandResults
+            .filter(r => r.status === 'skipped_deadline')
+            .map(r => r.seed.id);
+
+        if (skippedIds.length > 0) {
+            try {
+                const placeholders = skippedIds.map(() => '?').join(',');
+                await db.execute({
+                    sql: `UPDATE keywords SET is_expanded = 0 WHERE id IN (${placeholders})`,
+                    args: skippedIds
+                });
+            } catch (e) {
+                console.error('[Batch] Failed to rollback skipped seeds:', e);
+            }
+        }
+
         const succeeded = expandResults.filter(r => r.status === 'fulfilled');
         return {
-            processedSeeds: seeds.length,
+            processedSeeds: seedsData.length,
             totalSaved: succeeded.reduce((sum, r: any) => (sum + (r.saved || 0)), 0),
             stoppedDueToDeadline: stopDueToDeadline,
             details: expandResults.map((r: any) =>
-                r.status === 'fulfilled' ? `${r.seed} (+${r.saved})` : `${r.seed} (${r.status})`
+                r.status === 'fulfilled' ? `${r.seed.keyword} (+${r.saved})` : `${r.seed.keyword} (${r.status})`
             )
         };
     };
@@ -167,32 +239,41 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const taskFillDocs = async () => {
         if (task === 'expand') return null;
 
-        // 터보모드: API 키 최대 활용을 위해 배치 크기 증가
         const BATCH_SIZE = FILL_DOCS_BATCH;
         const CONCURRENCY = FILL_DOCS_CONCURRENCY;
 
-        // 🚀 인덱스 활용 최적화: total_doc_cnt IS NULL 조건에 대한 효율적 조회
-        const docsResult = await db.execute({
-            sql: `SELECT id, keyword, total_search_cnt FROM keywords
-                  WHERE total_doc_cnt IS NULL
-                  ORDER BY total_search_cnt DESC
-                  LIMIT ?`,
-            args: [BATCH_SIZE]
-        });
+        // 🚀 Atomic Claim: 문서 수집 대상 선점 (-2: Processing)
+        let docsToFill: any[] = [];
+        try {
+            const claimResult = await db.execute({
+                sql: `UPDATE keywords
+                      SET total_doc_cnt = -2
+                      WHERE id IN (
+                          SELECT id FROM keywords
+                          WHERE total_doc_cnt IS NULL
+                          ORDER BY total_search_cnt DESC
+                          LIMIT ?
+                      )
+                      RETURNING id, keyword, total_search_cnt`,
+                args: [BATCH_SIZE]
+            });
 
-        const docsToFill = docsResult.rows.map(row => ({
-            id: row.id as string,
-            keyword: row.keyword as string,
-            total_search_cnt: row.total_search_cnt as number
-        }));
+            docsToFill = claimResult.rows.map(row => ({
+                id: row.id as string,
+                keyword: row.keyword as string,
+                total_search_cnt: row.total_search_cnt as number
+            }));
+        } catch (e: any) {
+            console.error('[Batch] FillDocs Claim Failed:', e);
+            return null;
+        }
 
         if (!docsToFill || docsToFill.length === 0) return null;
 
-        console.log(`[Batch] FILL_DOCS: Processing ${docsToFill.length} items (Concurrency ${CONCURRENCY}, Deadline in ${(deadline - Date.now())}ms)`);
+        console.log(`[Batch] FILL_DOCS: Claimed ${docsToFill.length} items (Concurrency ${CONCURRENCY}, Deadline in ${(deadline - Date.now())}ms)`);
         let stopDueToDeadline = false;
 
         const processedResults = await mapWithConcurrency(docsToFill, CONCURRENCY, async (item) => {
-            // Keep a safety margin to avoid Vercel hard timeout.
             if (Date.now() > (deadline - 2500)) {
                 stopDueToDeadline = true;
                 return { status: 'skipped_deadline', item };
@@ -209,7 +290,22 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         const succeeded = processedResults.filter(r => r.status === 'fulfilled');
         const failed = processedResults.filter(r => r.status === 'rejected');
 
-        // Success Updates
+        // 스킵된 항목은 -2 -> NULL로 롤백해야 다시 잡힘
+        const skipped = processedResults.filter(r => r.status === 'skipped_deadline');
+        if (skipped.length > 0) {
+            const skippedIds = skipped.map(r => r.item.id);
+            try {
+                const placeholders = skippedIds.map(() => '?').join(',');
+                await db.execute({
+                    sql: `UPDATE keywords SET total_doc_cnt = NULL WHERE id IN (${placeholders})`,
+                    args: skippedIds
+                });
+            } catch (e) {
+                console.error('[Batch] Error rolling back skipped docs:', e);
+            }
+        }
+
+        // Success Updates (will overwrite -2 with real count)
         const successUpdates = succeeded.map((res: any) => {
             const { item, counts } = res;
             const viewDocCnt = (counts.blog || 0) + (counts.cafe || 0) + (counts.web || 0);
@@ -243,10 +339,9 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
             };
         });
 
-        // Failure Updates (Mark as Error to prevent reuse)
+        // Failure Updates (Error Flag: -1)
         const failureUpdates = failed.map((res: any) => {
             const { keyword, error } = res;
-            // Find original item ID from docsToFill
             const original = docsToFill.find(d => d.keyword === keyword);
             if (!original) return null;
 
@@ -270,10 +365,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 
         if (updates.length > 0) {
             try {
-                // 🚀 트랜잭션 UPSERT: 모든 업데이트를 단일 트랜잭션으로 처리, DB 호출 최소화
                 await db.execute({ sql: 'BEGIN TRANSACTION' });
-
-                const batchSize = 200; // 50 → 200, 4배 증가
+                const batchSize = 200;
                 for (let i = 0; i < updates.length; i += batchSize) {
                     const batch = updates.slice(i, i + batchSize);
                     const statements = batch.map(update => ({
@@ -299,7 +392,6 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 
                     await db.batch(statements);
                 }
-
                 await db.execute({ sql: 'COMMIT' });
             } catch (upsertError: any) {
                 await db.execute({ sql: 'ROLLBACK' });
@@ -319,6 +411,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
             errors: failed.slice(0, 3).map((f: any) => `${f.keyword}: ${f.error}`)
         };
     };
+
 
     try {
         // Execute Both Tasks in Parallel
