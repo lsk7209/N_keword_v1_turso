@@ -127,26 +127,49 @@ export async function fetchDocumentCount(keyword: string) {
 
                 const headers = {
                     'X-Naver-Client-Id': clientId,
-                    'X-Naver-Client-Secret': clientSecret
+                    'X-Naver-Client-Secret': clientSecret,
+                    'Connection': 'keep-alive' // Hint for Keep-Alive
                 };
 
                 const url = `https://openapi.naver.com/v1/search/${type}.json?query=${encodeURIComponent(keyword)}&display=1&sort=sim`;
 
-                const res = await fetch(url, { headers });
+                // 🚀 Fast Timeout: 3초 안에 응답 없으면 바로 손절 (Hanging 방지)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-                if (res.status === 429) {
-                    keyManager.report429(key.id, 'SEARCH');
-                    await sleep(1200); // small backoff
-                    continue; // Try next key
+                try {
+                    const res = await fetch(url, {
+                        headers,
+                        signal: controller.signal,
+                        // @ts-ignore - Next.js/Node fetch might support agent if available, but pure fetch standard doesn't. 
+                        // However, 'keep-alive' header helps.
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (res.status === 429) {
+                        keyManager.report429(key.id, 'SEARCH');
+                        // Jitter Backoff: 1000ms ~ 2000ms random delay to prevent thundering herd
+                        const jitter = 1000 + Math.random() * 1000;
+                        await sleep(jitter);
+                        continue; // Try next key
+                    }
+
+                    if (!res.ok) {
+                        continue; // blind retry with next key
+                    }
+
+                    const json = await res.json();
+                    return json.total || 0;
+
+                } catch (fetchError: any) {
+                    clearTimeout(timeoutId);
+                    if (fetchError.name === 'AbortError') {
+                        // Timeout considered as transient failure, try next key immediately
+                        // console.warn(`[NaverAPI] Timeout for ${keyword} (${type})`);
+                        continue;
+                    }
+                    throw fetchError;
                 }
-
-                if (!res.ok) {
-                    // console.warn(`Search ${type} error ${res.status} with key ${key.id}. Retrying...`);
-                    continue; // blind retry with next key
-                }
-
-                const json = await res.json();
-                return json.total || 0;
 
             } catch (e) {
                 lastErr = e;
