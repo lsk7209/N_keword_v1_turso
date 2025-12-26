@@ -226,161 +226,88 @@ export async function processSeedKeyword(
 
     if (allRows.length > 0) {
         const now = getCurrentTimestamp();
-        let transactionStarted = false;
 
-        console.log(`[MiningEngine] 🔄 Starting transaction for ${allRows.length} rows`);
+        console.log(`[MiningEngine] 🔄 Starting batch insert for ${allRows.length} rows`);
         
         try {
-            // 🚀 단일 트랜잭션: BEGIN/COMMIT 1회만 실행 (이전: 2회 → 현재: 1회, 50% 감소)
-            console.log(`[MiningEngine] 📝 Step 1: Executing BEGIN TRANSACTION...`);
-            await db.execute({ sql: 'BEGIN TRANSACTION' });
-            transactionStarted = true;
-            console.log(`[MiningEngine] ✅ Step 1: BEGIN TRANSACTION succeeded. transactionStarted=${transactionStarted}`);
-
+            // 🚀 FIX: db.batch()는 내부적으로 자체 트랜잭션을 관리하므로 BEGIN/COMMIT 불필요
+            // Turso/libsql의 db.batch()는 자동으로 트랜잭션을 시작하고 커밋합니다.
+            // 외부에서 BEGIN/COMMIT을 사용하면 충돌이 발생하여 "cannot commit - no transaction is active" 에러가 발생합니다.
+            
             // 🚀 터보모드: 배치 크기 대폭 증가 (500 → 1000)로 DB 호출 최소화
             const batchSize = 1000; // DB 호출 횟수 50% 추가 감소
-            let batchSucceeded = true;
             const totalBatches = Math.ceil(allRows.length / batchSize);
-            console.log(`[MiningEngine] 📦 Step 2: Preparing ${totalBatches} batch(es) with batchSize=${batchSize}...`);
+            console.log(`[MiningEngine] 📦 Preparing ${totalBatches} batch(es) with batchSize=${batchSize}...`);
             
-            try {
-                for (let i = 0; i < allRows.length; i += batchSize) {
-                    const batchIndex = Math.floor(i / batchSize) + 1;
-                    const batch = allRows.slice(i, i + batchSize);
-                    console.log(`[MiningEngine] 📦 Step 2.${batchIndex}: Processing batch ${batchIndex}/${totalBatches} with ${batch.length} rows...`);
-                    
-                    const statements = batch.map(row => {
-                        // 🚀 연관검색어 수집 수정: ON CONFLICT로 기존 키워드의 id 유지하면서 업데이트
-                        // 기존 키워드가 있으면 id를 유지하고 검색량 등 정보만 업데이트
-                        const isDeferred = row.total_doc_cnt === null;
-                        return {
-                            sql: isDeferred 
-                                ? `INSERT OR IGNORE INTO keywords (
-                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                                pc_click_cnt, mo_click_cnt, click_cnt,
-                                pc_ctr, mo_ctr, total_ctr,
-                                comp_idx, pl_avg_depth,
-                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                                web_doc_cnt, news_doc_cnt,
-                                golden_ratio, tier, is_expanded,
-                                created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-                                : `INSERT OR IGNORE INTO keywords (
-                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                                pc_click_cnt, mo_click_cnt, click_cnt,
-                                pc_ctr, mo_ctr, total_ctr,
-                                comp_idx, pl_avg_depth,
-                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                                web_doc_cnt, news_doc_cnt,
-                                golden_ratio, tier, is_expanded,
-                                created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            args: isDeferred
-                                ? [
-                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+            for (let i = 0; i < allRows.length; i += batchSize) {
+                const batchIndex = Math.floor(i / batchSize) + 1;
+                const batch = allRows.slice(i, i + batchSize);
+                console.log(`[MiningEngine] 📦 Processing batch ${batchIndex}/${totalBatches} with ${batch.length} rows...`);
+                
+                const statements = batch.map(row => {
+                    // 🚀 연관검색어 수집 수정: ON CONFLICT로 기존 키워드의 id 유지하면서 업데이트
+                    // 기존 키워드가 있으면 id를 유지하고 검색량 등 정보만 업데이트
+                    const isDeferred = row.total_doc_cnt === null;
+                    return {
+                        sql: isDeferred 
+                            ? `INSERT OR IGNORE INTO keywords (
+                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                            pc_click_cnt, mo_click_cnt, click_cnt,
+                            pc_ctr, mo_ctr, total_ctr,
+                            comp_idx, pl_avg_depth,
+                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                            web_doc_cnt, news_doc_cnt,
+                            golden_ratio, tier, is_expanded,
+                            created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                            : `INSERT OR IGNORE INTO keywords (
+                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                            pc_click_cnt, mo_click_cnt, click_cnt,
+                            pc_ctr, mo_ctr, total_ctr,
+                            comp_idx, pl_avg_depth,
+                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                            web_doc_cnt, news_doc_cnt,
+                            golden_ratio, tier, is_expanded,
+                            created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        args: isDeferred
+                            ? [
+                                generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                            row.comp_idx || null, row.pl_avg_depth || 0,
+                            null, 0, 0, 0, 0,
+                            0, row.tier, row.is_expanded ? 1 : 0,
+                            now, now
+                        ]
+                            : [
+                                generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
                                 row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
                                 row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
                                 row.comp_idx || null, row.pl_avg_depth || 0,
-                                null, 0, 0, 0, 0,
-                                0, row.tier, row.is_expanded ? 1 : 0,
-                                now, now
+                                row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
+                                (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
+                                row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                            now, now
                             ]
-                                : [
-                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                                    row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                                    row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                                    row.comp_idx || null, row.pl_avg_depth || 0,
-                                    row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
-                                    (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
-                                    row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                                now, now
-                            ]
-                        };
-                    });
-                    
-                    console.log(`[MiningEngine] 📦 Step 2.${batchIndex}: Executing db.batch() with ${statements.length} statements...`);
-                    await db.batch(statements);
-                    console.log(`[MiningEngine] ✅ Step 2.${batchIndex}: db.batch() succeeded`);
-                }
-                console.log(`[MiningEngine] ✅ Step 2: All batches completed successfully. batchSucceeded=${batchSucceeded}`);
-            } catch (batchError: any) {
-                // db.batch() 실행 중 에러 발생 시 트랜잭션이 자동으로 롤백될 수 있음
-                batchSucceeded = false;
-                console.error(`[MiningEngine] ❌ Step 2: DB Batch Error!`, {
-                    message: batchError.message,
-                    stack: batchError.stack,
-                    name: batchError.name,
-                    code: batchError.code,
-                    transactionStarted: transactionStarted,
-                    batchSucceeded: batchSucceeded
+                    };
                 });
-                // transactionStarted를 false로 설정하여 COMMIT을 시도하지 않도록 함
-                transactionStarted = false;
-                throw batchError; // 원래 에러를 다시 throw
+                
+                console.log(`[MiningEngine] 📦 Executing db.batch() with ${statements.length} statements...`);
+                await db.batch(statements);
+                console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} succeeded`);
             }
-
-            // 🚀 COMMIT은 batch가 성공한 경우에만 시도
-            console.log(`[MiningEngine] 📝 Step 3: Checking conditions for COMMIT...`, {
-                batchSucceeded,
-                transactionStarted,
-                willCommit: batchSucceeded && transactionStarted
-            });
             
-            if (batchSucceeded && transactionStarted) {
-                try {
-                    console.log(`[MiningEngine] 📝 Step 3: Executing COMMIT...`);
-                    await db.execute({ sql: 'COMMIT' });
-                    totalSaved = allRows.length;
-                    console.log(`[MiningEngine] ✅ Step 3: COMMIT succeeded. totalSaved=${totalSaved}`);
-                } catch (commitError: any) {
-                    // COMMIT 실패 시 (트랜잭션이 이미 롤백되었을 수 있음)
-                    console.error(`[MiningEngine] ❌ Step 3: COMMIT error!`, {
-                        message: commitError.message,
-                        stack: commitError.stack,
-                        name: commitError.name,
-                        code: commitError.code,
-                        transactionStarted: transactionStarted,
-                        batchSucceeded: batchSucceeded
-                    });
-                    // transactionStarted를 false로 설정하여 catch 블록에서 ROLLBACK을 시도하지 않도록 함
-                    transactionStarted = false;
-                    throw commitError; // 원래 에러를 다시 throw하여 catch 블록으로 전달
-                }
-            } else {
-                console.warn(`[MiningEngine] ⚠️ Step 3: Skipping COMMIT because conditions not met:`, {
-                    batchSucceeded,
-                    transactionStarted
-                });
-            }
+            totalSaved = allRows.length;
+            console.log(`[MiningEngine] ✅ All batches completed successfully. totalSaved=${totalSaved}`);
         } catch (e: any) {
-            console.error(`[MiningEngine] ❌ Outer catch block triggered!`, {
+            console.error(`[MiningEngine] ❌ DB Batch Error:`, {
                 message: e.message,
                 stack: e.stack,
                 name: e.name,
                 code: e.code,
-                transactionStarted: transactionStarted
+                rowsCount: allRows.length
             });
-            
-            // Only rollback if transaction was actually started
-            if (transactionStarted) {
-                try {
-                    console.log(`[MiningEngine] 🔄 Attempting ROLLBACK...`);
-                    await db.execute({ sql: 'ROLLBACK' });
-                    console.log(`[MiningEngine] ✅ ROLLBACK succeeded`);
-                } catch (rollbackError: any) {
-                    // Ignore rollback errors (transaction might already be rolled back)
-                    console.error(`[MiningEngine] ⚠️ Rollback error (ignored):`, {
-                        message: rollbackError.message,
-                        stack: rollbackError.stack,
-                        name: rollbackError.name,
-                        code: rollbackError.code
-                    });
-                }
-            } else {
-                console.log(`[MiningEngine] ℹ️ Skipping ROLLBACK because transactionStarted=${transactionStarted}`);
-            }
-            
-            console.error(`[MiningEngine] ❌ DB Transaction UPSERT Error:`, e);
             throw new Error(`DB Save Failed: ${e.message}`);
         }
     } else {

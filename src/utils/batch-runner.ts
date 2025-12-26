@@ -383,72 +383,47 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         const now = getCurrentTimestamp();
 
         if (updates.length > 0) {
-            let transactionStarted = false;
             try {
-                await db.execute({ sql: 'BEGIN TRANSACTION' });
-                transactionStarted = true;
+                // 🚀 FIX: db.batch()는 내부적으로 자체 트랜잭션을 관리하므로 BEGIN/COMMIT 불필요
+                // Turso/libsql의 db.batch()는 자동으로 트랜잭션을 시작하고 커밋합니다.
+                // 외부에서 BEGIN/COMMIT을 사용하면 충돌이 발생하여 "cannot commit - no transaction is active" 에러가 발생합니다.
+                
                 // 🚀 터보모드: 배치 크기 대폭 증가 (200 → 1000)로 DB 호출 최소화
                 const batchSize = 1000; // DB 호출 횟수 80% 감소
-                let batchSucceeded = true;
                 
-                try {
-                    for (let i = 0; i < updates.length; i += batchSize) {
-                        const batch = updates.slice(i, i + batchSize);
-                        const statements = batch.map(update => ({
-                            sql: `INSERT OR REPLACE INTO keywords (
-                                id, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                                web_doc_cnt, news_doc_cnt, golden_ratio, tier, updated_at
-                            ) VALUES (
-                                (SELECT id FROM keywords WHERE id = ?),
-                                ?, ?, ?, ?, ?, ?, ?, ?
-                            )`,
-                            args: [
-                                update.id,
-                                update.total_doc_cnt,
-                                update.blog_doc_cnt || 0,
-                                update.cafe_doc_cnt || 0,
-                                update.web_doc_cnt || 0,
-                                update.news_doc_cnt || 0,
-                                update.golden_ratio,
-                                update.tier,
-                                now
-                            ]
-                        }));
+                for (let i = 0; i < updates.length; i += batchSize) {
+                    const batch = updates.slice(i, i + batchSize);
+                    const statements = batch.map(update => ({
+                        sql: `INSERT OR REPLACE INTO keywords (
+                            id, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                            web_doc_cnt, news_doc_cnt, golden_ratio, tier, updated_at
+                        ) VALUES (
+                            (SELECT id FROM keywords WHERE id = ?),
+                            ?, ?, ?, ?, ?, ?, ?, ?
+                        )`,
+                        args: [
+                            update.id,
+                            update.total_doc_cnt,
+                            update.blog_doc_cnt || 0,
+                            update.cafe_doc_cnt || 0,
+                            update.web_doc_cnt || 0,
+                            update.news_doc_cnt || 0,
+                            update.golden_ratio,
+                            update.tier,
+                            now
+                        ]
+                    }));
 
-                        await db.batch(statements);
-                    }
-                } catch (batchError: any) {
-                    // db.batch() 실행 중 에러 발생 시 트랜잭션이 자동으로 롤백될 수 있음
-                    batchSucceeded = false;
-                    console.error('[Batch] DB Batch Error (transaction may have been auto-rolled back):', batchError.message);
-                    // transactionStarted를 false로 설정하여 COMMIT을 시도하지 않도록 함
-                    transactionStarted = false;
-                    throw batchError; // 원래 에러를 다시 throw
-                }
-                
-                // 🚀 COMMIT은 batch가 성공한 경우에만 시도
-                if (batchSucceeded && transactionStarted) {
-                    try {
-                        await db.execute({ sql: 'COMMIT' });
-                    } catch (commitError: any) {
-                        // COMMIT 실패 시 (트랜잭션이 이미 롤백되었을 수 있음)
-                        console.error('[Batch] COMMIT error (transaction may have been auto-rolled back):', commitError.message);
-                        // transactionStarted를 false로 설정하여 catch 블록에서 ROLLBACK을 시도하지 않도록 함
-                        transactionStarted = false;
-                        throw commitError; // 원래 에러를 다시 throw하여 catch 블록으로 전달
-                    }
+                    await db.batch(statements);
                 }
             } catch (upsertError: any) {
-                // Only rollback if transaction was actually started
-                if (transactionStarted) {
-                    try {
-                        await db.execute({ sql: 'ROLLBACK' });
-                    } catch (rollbackError: any) {
-                        // Ignore rollback errors (transaction might already be rolled back)
-                        console.error('[Batch] Rollback error (ignored):', rollbackError.message);
-                    }
-                }
-                console.error('[Batch] Transaction UPSERT Error:', upsertError);
+                console.error('[Batch] DB Batch Error:', {
+                    message: upsertError.message,
+                    stack: upsertError.stack,
+                    name: upsertError.name,
+                    code: upsertError.code,
+                    updatesCount: updates.length
+                });
                 return {
                     processed: 0,
                     failed: docsToFill.length,
