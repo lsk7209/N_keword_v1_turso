@@ -271,8 +271,8 @@ export async function processSeedKeyword(
                                 row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
                                 row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
                                 row.comp_idx || null, row.pl_avg_depth || 0,
-                                row.total_doc_cnt, row.blog_doc_cnt || 0, row.cafe_doc_cnt || 0,
-                                row.web_doc_cnt || 0, row.news_doc_cnt || 0,
+                                row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
+                                (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
                                 row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
                                 now, now
                             ]
