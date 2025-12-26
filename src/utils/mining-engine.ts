@@ -302,9 +302,37 @@ export async function processSeedKeyword(
                         });
                         
                         console.log(`[MiningEngine] 📦 Executing db.batch() with ${statements.length} new keywords...`);
+                        
+                        // 삽입 전 키워드 개수 확인
+                        const beforeCountResult = await db.execute({
+                            sql: `SELECT COUNT(*) as count FROM keywords WHERE keyword IN (${newRows.map(() => '?').join(',')})`,
+                            args: newRows.map(r => r.keyword)
+                        });
+                        const beforeCount = (beforeCountResult.rows[0]?.count as number) || 0;
+                        
+                        // 실제 삽입 실행
                         await db.batch(statements);
-                        actualSaved += newRows.length;
-                        console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} succeeded: ${newRows.length} new keywords saved`);
+                        
+                        // 삽입 후 키워드 개수 확인 (실제 저장 여부 검증)
+                        const afterCountResult = await db.execute({
+                            sql: `SELECT COUNT(*) as count FROM keywords WHERE keyword IN (${newRows.map(() => '?').join(',')})`,
+                            args: newRows.map(r => r.keyword)
+                        });
+                        const afterCount = (afterCountResult.rows[0]?.count as number) || 0;
+                        const actuallyInserted = afterCount - beforeCount;
+                        
+                        actualSaved += actuallyInserted;
+                        console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} succeeded:`, {
+                            attempted: newRows.length,
+                            beforeCount,
+                            afterCount,
+                            actuallyInserted,
+                            totalSaved: actualSaved
+                        });
+                        
+                        if (actuallyInserted < newRows.length) {
+                            console.warn(`[MiningEngine] ⚠️ Warning: Only ${actuallyInserted} out of ${newRows.length} keywords were actually saved!`);
+                        }
                     } catch (batchError: any) {
                         console.error(`[MiningEngine] ❌ Batch ${batchIndex} insert error:`, {
                             message: batchError.message,

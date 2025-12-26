@@ -17,6 +17,7 @@ export default function ManualMiner() {
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<KeywordItem[]>([]);
     const [error, setError] = useState('');
+    const [saveStats, setSaveStats] = useState<{ processed: number; saved: number } | null>(null);
 
     const handleMining = async () => {
         if (!input.trim()) return;
@@ -48,6 +49,15 @@ export default function ManualMiner() {
                 .filter((r: any) => r.success)
                 .flatMap((r: any) => r.data || []);
 
+            // 실제 저장된 개수 계산
+            const totalSaved = response.results
+                .filter((r: any) => r.success)
+                .reduce((sum: number, r: any) => sum + (r.stats?.saved || 0), 0);
+            const totalProcessed = response.results
+                .filter((r: any) => r.success)
+                .reduce((sum: number, r: any) => sum + (r.stats?.processed || 0), 0);
+
+            setSaveStats({ processed: totalProcessed, saved: totalSaved });
             setResults(allItems);
 
             if (allItems.length === 0) {
@@ -58,6 +68,9 @@ export default function ManualMiner() {
                 } else {
                     setError('결과가 없습니다.');
                 }
+            } else if (totalSaved === 0 && totalProcessed > 0) {
+                // 수집은 되었지만 저장되지 않은 경우 (모두 중복)
+                setError(`수집 완료: ${totalProcessed}개 수집되었으나 모두 중복 키워드로 저장되지 않았습니다.`);
             }
 
         } catch (err: any) {
@@ -105,7 +118,15 @@ export default function ManualMiner() {
                         </h3>
                         <span className="text-sm text-zinc-500 flex items-center gap-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                            DB 저장 완료
+                            {saveStats ? (
+                                saveStats.saved > 0 ? (
+                                    `DB 저장 완료 (${saveStats.saved}개 저장, ${saveStats.processed - saveStats.saved}개 중복)`
+                                ) : (
+                                    `수집 완료 (${saveStats.processed}개 수집, 모두 중복으로 저장 안됨)`
+                                )
+                            ) : (
+                                'DB 저장 완료'
+                            )}
                         </span>
                     </div>
 
