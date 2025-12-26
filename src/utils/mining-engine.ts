@@ -265,8 +265,9 @@ export async function processSeedKeyword(
                                 is_expanded = CASE 
                                     WHEN keywords.is_expanded = 1 THEN keywords.is_expanded 
                                     ELSE excluded.is_expanded 
-                                END,
-                                updated_at = excluded.updated_at`
+                                END
+                                -- 🚀 updated_at 업데이트 제거: 기존 키워드의 원래 updated_at 유지
+                                -- 새로 추가되는 키워드만 created_at과 updated_at이 설정됨`
                             : `INSERT INTO keywords (
                             id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
                             pc_click_cnt, mo_click_cnt, click_cnt,
@@ -301,8 +302,9 @@ export async function processSeedKeyword(
                                 is_expanded = CASE 
                                     WHEN keywords.is_expanded = 1 THEN keywords.is_expanded 
                                     ELSE excluded.is_expanded 
-                                END,
-                                updated_at = excluded.updated_at`,
+                                END
+                                -- 🚀 updated_at 업데이트 제거: 기존 키워드의 원래 updated_at 유지
+                                -- 새로 추가되는 키워드만 created_at과 updated_at이 설정됨`,
                         args: isDeferred
                             ? [
                                 generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
