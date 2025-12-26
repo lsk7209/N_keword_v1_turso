@@ -4,6 +4,7 @@ import { Activity, Database, Layers, Search, TrendingUp, AlertCircle, KeyRound }
 import Link from 'next/link';
 import { keyManager } from '@/utils/key-manager';
 import MiningControls from '@/components/MiningControls';
+import AutoRefresh from '@/components/AutoRefresh';
 
 // Force dynamic to get latest stats
 export const dynamic = 'force-dynamic';
@@ -345,6 +346,9 @@ export default async function MonitorPage() {
                 <MiningControls />
 
             </div>
+            
+            {/* Auto Refresh Component - refreshes page every 10 seconds */}
+            <AutoRefresh interval={10000} />
         </div>
     );
 }
