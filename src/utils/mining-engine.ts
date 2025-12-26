@@ -217,22 +217,38 @@ export async function processSeedKeyword(
     let totalSaved = 0;
     const allRows = [...rowsToInsert, ...rowsDeferred];
 
+    console.log(`[MiningEngine] 📊 Data preparation summary:`, {
+        rowsToInsert: rowsToInsert.length,
+        rowsDeferred: rowsDeferred.length,
+        totalRows: allRows.length,
+        seedKeyword: seedKeyword
+    });
+
     if (allRows.length > 0) {
         const now = getCurrentTimestamp();
         let transactionStarted = false;
 
+        console.log(`[MiningEngine] 🔄 Starting transaction for ${allRows.length} rows`);
+        
         try {
             // 🚀 단일 트랜잭션: BEGIN/COMMIT 1회만 실행 (이전: 2회 → 현재: 1회, 50% 감소)
+            console.log(`[MiningEngine] 📝 Step 1: Executing BEGIN TRANSACTION...`);
             await db.execute({ sql: 'BEGIN TRANSACTION' });
             transactionStarted = true;
+            console.log(`[MiningEngine] ✅ Step 1: BEGIN TRANSACTION succeeded. transactionStarted=${transactionStarted}`);
 
             // 🚀 터보모드: 배치 크기 대폭 증가 (500 → 1000)로 DB 호출 최소화
             const batchSize = 1000; // DB 호출 횟수 50% 추가 감소
             let batchSucceeded = true;
+            const totalBatches = Math.ceil(allRows.length / batchSize);
+            console.log(`[MiningEngine] 📦 Step 2: Preparing ${totalBatches} batch(es) with batchSize=${batchSize}...`);
             
             try {
                 for (let i = 0; i < allRows.length; i += batchSize) {
+                    const batchIndex = Math.floor(i / batchSize) + 1;
                     const batch = allRows.slice(i, i + batchSize);
+                    console.log(`[MiningEngine] 📦 Step 2.${batchIndex}: Processing batch ${batchIndex}/${totalBatches} with ${batch.length} rows...`);
+                    
                     const statements = batch.map(row => {
                         // 🚀 연관검색어 수집 수정: ON CONFLICT로 기존 키워드의 id 유지하면서 업데이트
                         // 기존 키워드가 있으면 id를 유지하고 검색량 등 정보만 업데이트
@@ -281,43 +297,94 @@ export async function processSeedKeyword(
                             ]
                         };
                     });
+                    
+                    console.log(`[MiningEngine] 📦 Step 2.${batchIndex}: Executing db.batch() with ${statements.length} statements...`);
                     await db.batch(statements);
+                    console.log(`[MiningEngine] ✅ Step 2.${batchIndex}: db.batch() succeeded`);
                 }
+                console.log(`[MiningEngine] ✅ Step 2: All batches completed successfully. batchSucceeded=${batchSucceeded}`);
             } catch (batchError: any) {
                 // db.batch() 실행 중 에러 발생 시 트랜잭션이 자동으로 롤백될 수 있음
                 batchSucceeded = false;
-                console.error(`DB Batch Error (transaction may have been auto-rolled back):`, batchError.message);
+                console.error(`[MiningEngine] ❌ Step 2: DB Batch Error!`, {
+                    message: batchError.message,
+                    stack: batchError.stack,
+                    name: batchError.name,
+                    code: batchError.code,
+                    transactionStarted: transactionStarted,
+                    batchSucceeded: batchSucceeded
+                });
                 // transactionStarted를 false로 설정하여 COMMIT을 시도하지 않도록 함
                 transactionStarted = false;
                 throw batchError; // 원래 에러를 다시 throw
             }
 
             // 🚀 COMMIT은 batch가 성공한 경우에만 시도
+            console.log(`[MiningEngine] 📝 Step 3: Checking conditions for COMMIT...`, {
+                batchSucceeded,
+                transactionStarted,
+                willCommit: batchSucceeded && transactionStarted
+            });
+            
             if (batchSucceeded && transactionStarted) {
                 try {
+                    console.log(`[MiningEngine] 📝 Step 3: Executing COMMIT...`);
                     await db.execute({ sql: 'COMMIT' });
                     totalSaved = allRows.length;
+                    console.log(`[MiningEngine] ✅ Step 3: COMMIT succeeded. totalSaved=${totalSaved}`);
                 } catch (commitError: any) {
                     // COMMIT 실패 시 (트랜잭션이 이미 롤백되었을 수 있음)
-                    console.error(`COMMIT error (transaction may have been auto-rolled back):`, commitError.message);
+                    console.error(`[MiningEngine] ❌ Step 3: COMMIT error!`, {
+                        message: commitError.message,
+                        stack: commitError.stack,
+                        name: commitError.name,
+                        code: commitError.code,
+                        transactionStarted: transactionStarted,
+                        batchSucceeded: batchSucceeded
+                    });
                     // transactionStarted를 false로 설정하여 catch 블록에서 ROLLBACK을 시도하지 않도록 함
                     transactionStarted = false;
                     throw commitError; // 원래 에러를 다시 throw하여 catch 블록으로 전달
                 }
+            } else {
+                console.warn(`[MiningEngine] ⚠️ Step 3: Skipping COMMIT because conditions not met:`, {
+                    batchSucceeded,
+                    transactionStarted
+                });
             }
         } catch (e: any) {
+            console.error(`[MiningEngine] ❌ Outer catch block triggered!`, {
+                message: e.message,
+                stack: e.stack,
+                name: e.name,
+                code: e.code,
+                transactionStarted: transactionStarted
+            });
+            
             // Only rollback if transaction was actually started
             if (transactionStarted) {
                 try {
-            await db.execute({ sql: 'ROLLBACK' });
+                    console.log(`[MiningEngine] 🔄 Attempting ROLLBACK...`);
+                    await db.execute({ sql: 'ROLLBACK' });
+                    console.log(`[MiningEngine] ✅ ROLLBACK succeeded`);
                 } catch (rollbackError: any) {
                     // Ignore rollback errors (transaction might already be rolled back)
-                    console.error(`Rollback error (ignored):`, rollbackError.message);
+                    console.error(`[MiningEngine] ⚠️ Rollback error (ignored):`, {
+                        message: rollbackError.message,
+                        stack: rollbackError.stack,
+                        name: rollbackError.name,
+                        code: rollbackError.code
+                    });
                 }
+            } else {
+                console.log(`[MiningEngine] ℹ️ Skipping ROLLBACK because transactionStarted=${transactionStarted}`);
             }
-            console.error(`DB Transaction UPSERT Error:`, e);
+            
+            console.error(`[MiningEngine] ❌ DB Transaction UPSERT Error:`, e);
             throw new Error(`DB Save Failed: ${e.message}`);
         }
+    } else {
+        console.log(`[MiningEngine] ℹ️ No rows to save (allRows.length=0)`);
     }
 
     return {

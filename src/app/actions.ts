@@ -37,11 +37,21 @@ export async function manualMining(keywords: string[]) {
 
         for (const seed of seeds) {
             try {
-                console.log(`[manualMining] Processing seed: ${seed}`);
+                console.log(`[manualMining] 🔍 Processing seed: "${seed}"`);
+                console.log(`[manualMining] 📋 Parameters: limitDocCount=30, skipDocFetch=false, minSearchVolume=1000, maxKeywords=300`);
+                
                 // For manual collection, we want to fetch document counts as well.
                 // Limit to 30 to avoid timeout (Vercel 60s limit)
+                const startTime = Date.now();
                 const result = await processSeedKeyword(seed, 30, false, 1000, 300);
-                console.log(`[manualMining] Success for ${seed}: processed=${result.processed}, saved=${result.saved}`);
+                const duration = Date.now() - startTime;
+                
+                console.log(`[manualMining] ✅ Success for "${seed}" (${duration}ms):`, {
+                    processed: result.processed,
+                    saved: result.saved,
+                    itemsCount: result.items?.length || 0
+                });
+                
                 results.push({
                     seed,
                     success: true,
@@ -49,7 +59,13 @@ export async function manualMining(keywords: string[]) {
                     stats: { processed: result.processed, saved: result.saved }
                 });
             } catch (e: any) {
-                console.error(`[manualMining] Error processing ${seed}:`, e);
+                console.error(`[manualMining] ❌ Error processing "${seed}":`, {
+                    message: e.message,
+                    stack: e.stack,
+                    name: e.name,
+                    code: e.code,
+                    cause: e.cause
+                });
                 results.push({
                     seed,
                     success: false,
