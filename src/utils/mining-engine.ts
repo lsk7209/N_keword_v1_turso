@@ -230,13 +230,12 @@ export async function processSeedKeyword(
         console.log(`[MiningEngine] 🔄 Starting batch insert for ${allRows.length} rows`);
         
         try {
-            // 🚀 FIX: db.batch()는 내부적으로 자체 트랜잭션을 관리하므로 BEGIN/COMMIT 불필요
-            // Turso/libsql의 db.batch()는 자동으로 트랜잭션을 시작하고 커밋합니다.
-            // 외부에서 BEGIN/COMMIT을 사용하면 충돌이 발생하여 "cannot commit - no transaction is active" 에러가 발생합니다.
-            
-            // 🚀 터보모드: 배치 크기 대폭 증가 (500 → 1000)로 DB 호출 최소화
-            const batchSize = 1000; // DB 호출 횟수 50% 추가 감소
+            // 🚀 실제로 새로 삽입된 키워드 수를 확인하기 위해 삽입 전 존재 여부 확인
+            // 배치 단위로 존재하는 키워드를 확인하여 DB 읽기 최소화
+            const batchSize = 1000;
             const totalBatches = Math.ceil(allRows.length / batchSize);
+            let actualSaved = 0;
+            
             console.log(`[MiningEngine] 📦 Preparing ${totalBatches} batch(es) with batchSize=${batchSize}...`);
             
             for (let i = 0; i < allRows.length; i += batchSize) {
@@ -244,62 +243,74 @@ export async function processSeedKeyword(
                 const batch = allRows.slice(i, i + batchSize);
                 console.log(`[MiningEngine] 📦 Processing batch ${batchIndex}/${totalBatches} with ${batch.length} rows...`);
                 
-                const statements = batch.map(row => {
-                    // 🚀 연관검색어 수집 수정: ON CONFLICT로 기존 키워드의 id 유지하면서 업데이트
-                    // 기존 키워드가 있으면 id를 유지하고 검색량 등 정보만 업데이트
-                    const isDeferred = row.total_doc_cnt === null;
-                    return {
-                        sql: isDeferred 
-                            ? `INSERT OR IGNORE INTO keywords (
-                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                            pc_click_cnt, mo_click_cnt, click_cnt,
-                            pc_ctr, mo_ctr, total_ctr,
-                            comp_idx, pl_avg_depth,
-                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt,
-                            golden_ratio, tier, is_expanded,
-                            created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-                            : `INSERT OR IGNORE INTO keywords (
-                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                            pc_click_cnt, mo_click_cnt, click_cnt,
-                            pc_ctr, mo_ctr, total_ctr,
-                            comp_idx, pl_avg_depth,
-                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt,
-                            golden_ratio, tier, is_expanded,
-                            created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        args: isDeferred
-                            ? [
-                                generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                            row.comp_idx || null, row.pl_avg_depth || 0,
-                            null, 0, 0, 0, 0,
-                            0, row.tier, row.is_expanded ? 1 : 0,
-                            now, now
-                        ]
-                            : [
-                                generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                                row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                                row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                                row.comp_idx || null, row.pl_avg_depth || 0,
-                                row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
-                                (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
-                                row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                            now, now
-                            ]
-                    };
-                });
+                // 배치 내 키워드 목록 추출
+                const keywords = batch.map(row => row.keyword);
                 
-                console.log(`[MiningEngine] 📦 Executing db.batch() with ${statements.length} statements...`);
-                await db.batch(statements);
-                console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} succeeded`);
+                // 존재하는 키워드 확인 (배치 단위로 한 번만 쿼리)
+                const existingKeywordsResult = await db.execute({
+                    sql: `SELECT keyword FROM keywords WHERE keyword IN (${keywords.map(() => '?').join(',')})`,
+                    args: keywords
+                });
+                const existingKeywords = new Set(
+                    existingKeywordsResult.rows.map(row => row.keyword as string)
+                );
+                
+                // 새로 삽입할 키워드만 필터링
+                const newRows = batch.filter(row => !existingKeywords.has(row.keyword));
+                const skippedCount = batch.length - newRows.length;
+                
+                if (skippedCount > 0) {
+                    console.log(`[MiningEngine] ⏭️ Skipping ${skippedCount} existing keywords in batch ${batchIndex}`);
+                }
+                
+                if (newRows.length > 0) {
+                    const statements = newRows.map(row => {
+                        const isDeferred = row.total_doc_cnt === null;
+                        return {
+                            sql: `INSERT INTO keywords (
+                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                pc_click_cnt, mo_click_cnt, click_cnt,
+                                pc_ctr, mo_ctr, total_ctr,
+                                comp_idx, pl_avg_depth,
+                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt,
+                                golden_ratio, tier, is_expanded,
+                                created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            args: isDeferred
+                                ? [
+                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                    row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                    row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                    row.comp_idx || null, row.pl_avg_depth || 0,
+                                    null, 0, 0, 0, 0,
+                                    0, row.tier, row.is_expanded ? 1 : 0,
+                                    now, now
+                                ]
+                                : [
+                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                    row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                    row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                    row.comp_idx || null, row.pl_avg_depth || 0,
+                                    row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
+                                    (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
+                                    row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                                    now, now
+                                ]
+                        };
+                    });
+                    
+                    console.log(`[MiningEngine] 📦 Executing db.batch() with ${statements.length} new keywords...`);
+                    await db.batch(statements);
+                    actualSaved += newRows.length;
+                    console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} succeeded: ${newRows.length} new keywords saved`);
+                } else {
+                    console.log(`[MiningEngine] ⏭️ Batch ${batchIndex}/${totalBatches} skipped (all keywords already exist)`);
+                }
             }
             
-            totalSaved = allRows.length;
-            console.log(`[MiningEngine] ✅ All batches completed successfully. totalSaved=${totalSaved}`);
+            totalSaved = actualSaved;
+            console.log(`[MiningEngine] ✅ All batches completed successfully. totalSaved=${totalSaved} (${allRows.length - actualSaved} duplicates skipped)`);
         } catch (e: any) {
             console.error(`[MiningEngine] ❌ DB Batch Error:`, {
                 message: e.message,
