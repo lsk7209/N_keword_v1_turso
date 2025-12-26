@@ -389,41 +389,54 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
                 transactionStarted = true;
                 // 🚀 터보모드: 배치 크기 대폭 증가 (200 → 1000)로 DB 호출 최소화
                 const batchSize = 1000; // DB 호출 횟수 80% 감소
-                for (let i = 0; i < updates.length; i += batchSize) {
-                    const batch = updates.slice(i, i + batchSize);
-                    const statements = batch.map(update => ({
-                        sql: `INSERT OR REPLACE INTO keywords (
-                            id, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt, golden_ratio, tier, updated_at
-                        ) VALUES (
-                            (SELECT id FROM keywords WHERE id = ?),
-                            ?, ?, ?, ?, ?, ?, ?, ?
-                        )`,
-                        args: [
-                            update.id,
-                            update.total_doc_cnt,
-                            update.blog_doc_cnt || 0,
-                            update.cafe_doc_cnt || 0,
-                            update.web_doc_cnt || 0,
-                            update.news_doc_cnt || 0,
-                            update.golden_ratio,
-                            update.tier,
-                            now
-                        ]
-                    }));
+                let batchSucceeded = true;
+                
+                try {
+                    for (let i = 0; i < updates.length; i += batchSize) {
+                        const batch = updates.slice(i, i + batchSize);
+                        const statements = batch.map(update => ({
+                            sql: `INSERT OR REPLACE INTO keywords (
+                                id, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt, golden_ratio, tier, updated_at
+                            ) VALUES (
+                                (SELECT id FROM keywords WHERE id = ?),
+                                ?, ?, ?, ?, ?, ?, ?, ?
+                            )`,
+                            args: [
+                                update.id,
+                                update.total_doc_cnt,
+                                update.blog_doc_cnt || 0,
+                                update.cafe_doc_cnt || 0,
+                                update.web_doc_cnt || 0,
+                                update.news_doc_cnt || 0,
+                                update.golden_ratio,
+                                update.tier,
+                                now
+                            ]
+                        }));
 
-                    await db.batch(statements);
+                        await db.batch(statements);
+                    }
+                } catch (batchError: any) {
+                    // db.batch() 실행 중 에러 발생 시 트랜잭션이 자동으로 롤백될 수 있음
+                    batchSucceeded = false;
+                    console.error('[Batch] DB Batch Error (transaction may have been auto-rolled back):', batchError.message);
+                    // transactionStarted를 false로 설정하여 COMMIT을 시도하지 않도록 함
+                    transactionStarted = false;
+                    throw batchError; // 원래 에러를 다시 throw
                 }
                 
-                // 🚀 COMMIT도 안전하게 처리: 트랜잭션이 이미 롤백되었을 수 있음
-                try {
-                    await db.execute({ sql: 'COMMIT' });
-                } catch (commitError: any) {
-                    // COMMIT 실패 시 (트랜잭션이 이미 롤백되었을 수 있음)
-                    console.error('[Batch] COMMIT error (transaction may have been auto-rolled back):', commitError.message);
-                    // transactionStarted를 false로 설정하여 catch 블록에서 ROLLBACK을 시도하지 않도록 함
-                    transactionStarted = false;
-                    throw commitError; // 원래 에러를 다시 throw하여 catch 블록으로 전달
+                // 🚀 COMMIT은 batch가 성공한 경우에만 시도
+                if (batchSucceeded && transactionStarted) {
+                    try {
+                        await db.execute({ sql: 'COMMIT' });
+                    } catch (commitError: any) {
+                        // COMMIT 실패 시 (트랜잭션이 이미 롤백되었을 수 있음)
+                        console.error('[Batch] COMMIT error (transaction may have been auto-rolled back):', commitError.message);
+                        // transactionStarted를 false로 설정하여 catch 블록에서 ROLLBACK을 시도하지 않도록 함
+                        transactionStarted = false;
+                        throw commitError; // 원래 에러를 다시 throw하여 catch 블록으로 전달
+                    }
                 }
             } catch (upsertError: any) {
                 // Only rollback if transaction was actually started

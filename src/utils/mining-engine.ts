@@ -228,69 +228,82 @@ export async function processSeedKeyword(
 
             // 🚀 터보모드: 배치 크기 대폭 증가 (500 → 1000)로 DB 호출 최소화
             const batchSize = 1000; // DB 호출 횟수 50% 추가 감소
-            for (let i = 0; i < allRows.length; i += batchSize) {
-                const batch = allRows.slice(i, i + batchSize);
-                const statements = batch.map(row => {
-                    // 🚀 연관검색어 수집 수정: ON CONFLICT로 기존 키워드의 id 유지하면서 업데이트
-                    // 기존 키워드가 있으면 id를 유지하고 검색량 등 정보만 업데이트
-                    const isDeferred = row.total_doc_cnt === null;
-                    return {
-                        sql: isDeferred 
-                            ? `INSERT OR IGNORE INTO keywords (
-                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                            pc_click_cnt, mo_click_cnt, click_cnt,
-                            pc_ctr, mo_ctr, total_ctr,
-                            comp_idx, pl_avg_depth,
-                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt,
-                            golden_ratio, tier, is_expanded,
-                            created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-                            : `INSERT OR IGNORE INTO keywords (
-                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                            pc_click_cnt, mo_click_cnt, click_cnt,
-                            pc_ctr, mo_ctr, total_ctr,
-                            comp_idx, pl_avg_depth,
-                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt,
-                            golden_ratio, tier, is_expanded,
-                            created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        args: isDeferred
-                            ? [
-                                generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                            row.comp_idx || null, row.pl_avg_depth || 0,
-                            null, 0, 0, 0, 0,
-                            0, row.tier, row.is_expanded ? 1 : 0,
-                            now, now
-                        ]
-                            : [
-                                generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+            let batchSucceeded = true;
+            
+            try {
+                for (let i = 0; i < allRows.length; i += batchSize) {
+                    const batch = allRows.slice(i, i + batchSize);
+                    const statements = batch.map(row => {
+                        // 🚀 연관검색어 수집 수정: ON CONFLICT로 기존 키워드의 id 유지하면서 업데이트
+                        // 기존 키워드가 있으면 id를 유지하고 검색량 등 정보만 업데이트
+                        const isDeferred = row.total_doc_cnt === null;
+                        return {
+                            sql: isDeferred 
+                                ? `INSERT OR IGNORE INTO keywords (
+                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                pc_click_cnt, mo_click_cnt, click_cnt,
+                                pc_ctr, mo_ctr, total_ctr,
+                                comp_idx, pl_avg_depth,
+                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt,
+                                golden_ratio, tier, is_expanded,
+                                created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                : `INSERT OR IGNORE INTO keywords (
+                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                pc_click_cnt, mo_click_cnt, click_cnt,
+                                pc_ctr, mo_ctr, total_ctr,
+                                comp_idx, pl_avg_depth,
+                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt,
+                                golden_ratio, tier, is_expanded,
+                                created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            args: isDeferred
+                                ? [
+                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
                                 row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
                                 row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
                                 row.comp_idx || null, row.pl_avg_depth || 0,
-                                row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
-                                (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
-                                row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                            now, now
-                        ]
-                    };
-                });
-                await db.batch(statements);
+                                null, 0, 0, 0, 0,
+                                0, row.tier, row.is_expanded ? 1 : 0,
+                                now, now
+                            ]
+                                : [
+                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                    row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                    row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                    row.comp_idx || null, row.pl_avg_depth || 0,
+                                    row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
+                                    (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
+                                    row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                                now, now
+                            ]
+                        };
+                    });
+                    await db.batch(statements);
+                }
+            } catch (batchError: any) {
+                // db.batch() 실행 중 에러 발생 시 트랜잭션이 자동으로 롤백될 수 있음
+                batchSucceeded = false;
+                console.error(`DB Batch Error (transaction may have been auto-rolled back):`, batchError.message);
+                // transactionStarted를 false로 설정하여 COMMIT을 시도하지 않도록 함
+                transactionStarted = false;
+                throw batchError; // 원래 에러를 다시 throw
             }
 
-            // 🚀 COMMIT도 안전하게 처리: 트랜잭션이 이미 롤백되었을 수 있음
-            try {
-                await db.execute({ sql: 'COMMIT' });
-                totalSaved = allRows.length;
-            } catch (commitError: any) {
-                // COMMIT 실패 시 (트랜잭션이 이미 롤백되었을 수 있음)
-                console.error(`COMMIT error (transaction may have been auto-rolled back):`, commitError.message);
-                // transactionStarted를 false로 설정하여 catch 블록에서 ROLLBACK을 시도하지 않도록 함
-                transactionStarted = false;
-                throw commitError; // 원래 에러를 다시 throw하여 catch 블록으로 전달
+            // 🚀 COMMIT은 batch가 성공한 경우에만 시도
+            if (batchSucceeded && transactionStarted) {
+                try {
+                    await db.execute({ sql: 'COMMIT' });
+                    totalSaved = allRows.length;
+                } catch (commitError: any) {
+                    // COMMIT 실패 시 (트랜잭션이 이미 롤백되었을 수 있음)
+                    console.error(`COMMIT error (transaction may have been auto-rolled back):`, commitError.message);
+                    // transactionStarted를 false로 설정하여 catch 블록에서 ROLLBACK을 시도하지 않도록 함
+                    transactionStarted = false;
+                    throw commitError; // 원래 에러를 다시 throw하여 catch 블록으로 전달
+                }
             }
         } catch (e: any) {
             // Only rollback if transaction was actually started
