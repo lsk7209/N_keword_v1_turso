@@ -95,43 +95,43 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const searchKeyCount = keyManager.getKeyCount('SEARCH');
     const adKeyCount = keyManager.getKeyCount('AD');
 
-    // 🚀 터보모드: 최대 성능을 위한 공격적 설정
-    // AD Key: 개당 4-5배 (터보모드에서는 최대한 활용)
-    // 최소 12개, 키가 많을수록 증가 (최대 제한 없음)
+    // 🚀 터보모드: 최대 성능을 위한 공격적 설정 (API 키 최대 활용)
+    // AD Key: 개당 8-10배 (터보모드에서는 최대한 활용)
+    // 최소 20개, 키가 많을수록 증가 (최대 제한 없음)
     let baseExpandConcurrency = isTurboMode 
-        ? Math.max(12, adKeyCount * 5)  // 터보: 키당 5배, 최소 12
+        ? Math.max(20, adKeyCount * 10)  // 터보: 키당 10배, 최소 20 (5배 → 10배로 증가)
         : Math.max(4, adKeyCount * 2);  // 일반: 키당 2배, 최소 4
     
-    // Search Key: 개당 5-6배 (터보모드에서는 최대한 활용)
-    // 최소 28개, 키가 많을수록 증가 (최대 제한 없음)
+    // Search Key: 개당 10-12배 (터보모드에서는 최대한 활용)
+    // 최소 50개, 키가 많을수록 증가 (최대 제한 없음)
     let baseFillConcurrency = isTurboMode
-        ? Math.max(28, searchKeyCount * 6)  // 터보: 키당 6배, 최소 28
+        ? Math.max(50, searchKeyCount * 12)  // 터보: 키당 12배, 최소 50 (6배 → 12배로 증가)
         : Math.max(20, searchKeyCount * 3); // 일반: 키당 3배, 최소 20
 
     console.log(`[Batch] 🚀 TURBO Mode: Key-based concurrency: AD keys=${adKeyCount} → expand=${baseExpandConcurrency}, SEARCH keys=${searchKeyCount} → fill=${baseFillConcurrency}`);
 
     const SEED_COUNT = clampInt(options.seedCount, 0, 50, isTurboMode ? 20 : 5);
 
-    // 🚀 터보모드: 동시성 제한을 크게 확대
-    // EXPAND: 최대 200까지 허용 (터보모드에서는 더 많은 동시 처리)
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, isTurboMode ? 200 : 100, baseExpandConcurrency);
-    // FILL_DOCS: 최대 500까지 허용 (터보모드에서는 더 많은 동시 처리)
-    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, isTurboMode ? 500 : 400, baseFillConcurrency);
+    // 🚀 터보모드: 동시성 제한을 크게 확대 (API 키 최대 활용)
+    // EXPAND: 최대 500까지 허용 (터보모드에서는 더 많은 동시 처리)
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, isTurboMode ? 500 : 100, baseExpandConcurrency);
+    // FILL_DOCS: 최대 1000까지 허용 (터보모드에서는 더 많은 동시 처리)
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, isTurboMode ? 1000 : 400, baseFillConcurrency);
 
-    // 🚀 터보모드: 배치 크기를 최대한 크게 설정
-    // EXPAND: 동시성의 10-12배 (터보모드에서는 더 많은 시드 처리)
+    // 🚀 터보모드: 배치 크기를 최대한 크게 설정 (API 키 최대 활용)
+    // EXPAND: 동시성의 15-20배 (터보모드에서는 더 많은 시드 처리)
     const expandBatchBase = isTurboMode
-        ? Math.max(100, baseExpandConcurrency * 12)  // 터보: 12배, 최소 100
+        ? Math.max(200, baseExpandConcurrency * 20)  // 터보: 20배, 최소 200 (12배 → 20배로 증가)
         : Math.max(50, baseExpandConcurrency * 8);   // 일반: 8배, 최소 50
     
-    // FILL_DOCS: 동시성의 8-10배 (터보모드에서는 더 많은 키워드 처리)
+    // FILL_DOCS: 동시성의 15-20배 (터보모드에서는 더 많은 키워드 처리)
     const fillDocsBatchBase = isTurboMode
-        ? Math.max(200, baseFillConcurrency * 10)  // 터보: 10배, 최소 200
+        ? Math.max(500, baseFillConcurrency * 20)  // 터보: 20배, 최소 500 (10배 → 20배로 증가)
         : Math.max(100, baseFillConcurrency * 5);  // 일반: 5배, 최소 100
 
-    // 🚀 터보모드: 배치 크기 제한을 크게 확대
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, isTurboMode ? 2000 : 1000, expandBatchBase);
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, isTurboMode ? 10000 : 5000, fillDocsBatchBase);
+    // 🚀 터보모드: 배치 크기 제한을 크게 확대 (API 키 최대 활용)
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, isTurboMode ? 5000 : 1000, expandBatchBase);
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, isTurboMode ? 20000 : 5000, fillDocsBatchBase);
 
     // 최소 검색량 1000 강제 (쿼리 파라미터로 0이 전달되어도 최소 1000 적용)
     const MIN_SEARCH_VOLUME = Math.max(1000, clampInt(options.minSearchVolume, 0, 50_000, 1000));

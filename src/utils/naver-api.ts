@@ -132,9 +132,9 @@ export async function fetchDocumentCount(keyword: string) {
 
                 const url = `https://openapi.naver.com/v1/search/${type}.json?query=${encodeURIComponent(keyword)}&display=1&sort=sim`;
 
-                // 🚀 터보모드: 타임아웃 최적화 (3초 → 2초)로 더 빠른 처리
+                // 🚀 터보모드: 타임아웃 최적화 (2초 → 1.5초)로 더 빠른 처리
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                const timeoutId = setTimeout(() => controller.abort(), 1500);
 
                 try {
                     const res = await fetch(url, {
