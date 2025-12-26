@@ -264,46 +264,58 @@ export async function processSeedKeyword(
                 }
                 
                 if (newRows.length > 0) {
-                    const statements = newRows.map(row => {
-                        const isDeferred = row.total_doc_cnt === null;
-                        return {
-                            sql: `INSERT INTO keywords (
-                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                                pc_click_cnt, mo_click_cnt, click_cnt,
-                                pc_ctr, mo_ctr, total_ctr,
-                                comp_idx, pl_avg_depth,
-                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                                web_doc_cnt, news_doc_cnt,
-                                golden_ratio, tier, is_expanded,
-                                created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            args: isDeferred
-                                ? [
-                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                                    row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                                    row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                                    row.comp_idx || null, row.pl_avg_depth || 0,
-                                    null, 0, 0, 0, 0,
-                                    0, row.tier, row.is_expanded ? 1 : 0,
-                                    now, now
-                                ]
-                                : [
-                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                                    row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                                    row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                                    row.comp_idx || null, row.pl_avg_depth || 0,
-                                    row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
-                                    (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
-                                    row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                                    now, now
-                                ]
-                        };
-                    });
-                    
-                    console.log(`[MiningEngine] 📦 Executing db.batch() with ${statements.length} new keywords...`);
-                    await db.batch(statements);
-                    actualSaved += newRows.length;
-                    console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} succeeded: ${newRows.length} new keywords saved`);
+                    try {
+                        const statements = newRows.map(row => {
+                            const isDeferred = row.total_doc_cnt === null;
+                            return {
+                                sql: `INSERT OR IGNORE INTO keywords (
+                                    id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                    pc_click_cnt, mo_click_cnt, click_cnt,
+                                    pc_ctr, mo_ctr, total_ctr,
+                                    comp_idx, pl_avg_depth,
+                                    total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                    web_doc_cnt, news_doc_cnt,
+                                    golden_ratio, tier, is_expanded,
+                                    created_at, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                args: isDeferred
+                                    ? [
+                                        generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                        row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                        row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                        row.comp_idx || null, row.pl_avg_depth || 0,
+                                        null, 0, 0, 0, 0,
+                                        0, row.tier, row.is_expanded ? 1 : 0,
+                                        now, now
+                                    ]
+                                    : [
+                                        generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                        row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                        row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                        row.comp_idx || null, row.pl_avg_depth || 0,
+                                        row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
+                                        (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
+                                        row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                                        now, now
+                                    ]
+                            };
+                        });
+                        
+                        console.log(`[MiningEngine] 📦 Executing db.batch() with ${statements.length} new keywords...`);
+                        await db.batch(statements);
+                        actualSaved += newRows.length;
+                        console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} succeeded: ${newRows.length} new keywords saved`);
+                    } catch (batchError: any) {
+                        console.error(`[MiningEngine] ❌ Batch ${batchIndex} insert error:`, {
+                            message: batchError.message,
+                            stack: batchError.stack,
+                            code: batchError.code,
+                            keywordsCount: newRows.length,
+                            sampleKeywords: newRows.slice(0, 3).map(r => r.keyword)
+                        });
+                        // 에러가 발생해도 다음 배치 계속 처리
+                        throw batchError;
+                    }
                 } else {
                     console.log(`[MiningEngine] ⏭️ Batch ${batchIndex}/${totalBatches} skipped (all keywords already exist)`);
                 }
