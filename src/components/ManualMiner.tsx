@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Loader2, Pickaxe, Search, CheckCircle2 } from 'lucide-react';
-// import { triggerMining } from '@/app/actions'; // Server Action (Admin Only)
+import { manualMining } from '@/app/actions';
 
 export default function ManualMiner() {
     // 인터페이스 정의
@@ -17,7 +17,6 @@ export default function ManualMiner() {
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<KeywordItem[]>([]);
     const [error, setError] = useState('');
-    const cronSecret = process.env.NEXT_PUBLIC_CRON_SECRET || '';
 
     const handleMining = async () => {
         if (!input.trim()) return;
@@ -27,35 +26,20 @@ export default function ManualMiner() {
         setResults([]);
 
         try {
-            if (!cronSecret) {
-                throw new Error('보안키(NEXT_PUBLIC_CRON_SECRET)가 설정되지 않았습니다.');
-            }
-
             const keywords = input.split(',').map(s => s.trim()).filter(Boolean);
-            if (keywords.length === 0) return;
-
-            const res = await fetch(`/api/miner/manual?key=${encodeURIComponent(cronSecret)}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ keywords })
-            });
-
-            const raw = await res.text();
-            let json: any = {};
-            try {
-                json = raw ? JSON.parse(raw) : {};
-            } catch (err) {
-                // keep raw for debugging
+            if (keywords.length === 0) {
+                setError('키워드를 입력해주세요.');
+                return;
             }
 
-            if (!res.ok) {
-                const detail = json?.error || raw || 'Request failed';
-                const hint = res.status === 401 ? ' (CRON_SECRET 확인)' : '';
-                throw new Error(`요청 실패 (${res.status})${hint}: ${detail}`);
+            const response = await manualMining(keywords);
+
+            if (!response.success) {
+                throw new Error(response.error || '수집 중 오류 발생');
             }
 
             // Flatten results
-            const allItems = json.results
+            const allItems = response.results
                 .filter((r: any) => r.success)
                 .flatMap((r: any) => r.data || []);
 
@@ -63,7 +47,7 @@ export default function ManualMiner() {
 
             if (allItems.length === 0) {
                 // Check for errors
-                const failures = json.results.filter((r: any) => !r.success);
+                const failures = response.results.filter((r: any) => !r.success);
                 if (failures.length > 0) {
                     setError(`수집 실패: ${failures[0].error}`);
                 } else {
@@ -72,7 +56,9 @@ export default function ManualMiner() {
             }
 
         } catch (err: any) {
-            setError(err.message || '수집 중 오류 발생');
+            console.error('[ManualMiner] Error:', err);
+            const errorMessage = err.message || '수집 중 오류 발생';
+            setError(errorMessage);
         } finally {
             setLoading(false);
         }

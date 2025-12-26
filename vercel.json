@@ -6,12 +6,8 @@
     },
     "crons": [
         {
-            "path": "/api/miner/execute?task=expand&expandBatch=50&expandConcurrency=4&minSearchVolume=1000&maxRunMs=55000",
+            "path": "/api/miner/execute?task=all&expandBatch=50&expandConcurrency=4&fillBatch=100&fillConcurrency=20&minSearchVolume=1000&maxRunMs=55000",
             "schedule": "*/5 * * * *"
-        },
-        {
-            "path": "/api/miner/execute?task=fill_docs&fillBatch=100&fillConcurrency=20&maxRunMs=55000",
-            "schedule": "2-59/5 * * * *"
         }
     ],
     "headers": [

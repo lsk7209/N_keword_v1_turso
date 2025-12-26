@@ -262,10 +262,12 @@ export async function processSeedKeyword(
     // A. Rows with Document Counts (Complete Data) -> Transaction UPSERT Batch
     if (rowsToInsert.length > 0) {
         const now = getCurrentTimestamp();
+        let transactionStarted = false;
 
         try {
             // 🚀 트랜잭션 UPSERT 혁신: 모든 작업을 단일 트랜잭션으로 처리, DB 호출 90% 감소
             await db.execute({ sql: 'BEGIN TRANSACTION' });
+            transactionStarted = true;
 
             const batchSize = 200; // 50 → 200, 4배 증가로 DB 호출 75% 감소
             for (let i = 0; i < rowsToInsert.length; i += batchSize) {
@@ -301,7 +303,15 @@ export async function processSeedKeyword(
             await db.execute({ sql: 'COMMIT' });
             totalSaved += rowsToInsert.length;
         } catch (e: any) {
-            await db.execute({ sql: 'ROLLBACK' });
+            // Only rollback if transaction was actually started
+            if (transactionStarted) {
+                try {
+                    await db.execute({ sql: 'ROLLBACK' });
+                } catch (rollbackError: any) {
+                    // Ignore rollback errors (transaction might already be rolled back)
+                    console.error(`Rollback error (ignored):`, rollbackError.message);
+                }
+            }
             console.error(`DB Transaction UPSERT Error:`, e);
             throw new Error(`DB Save Failed (Complete): ${e.message}`);
         }
@@ -310,9 +320,11 @@ export async function processSeedKeyword(
     // B. Rows Deferred (Null Docs) -> Transaction UPSERT Batch (중복 방지)
     if (rowsDeferred.length > 0) {
         const now = getCurrentTimestamp();
+        let transactionStarted = false;
         try {
             // 🚀 트랜잭션 UPSERT 혁신: 모든 작업을 단일 트랜잭션으로 처리
             await db.execute({ sql: 'BEGIN TRANSACTION' });
+            transactionStarted = true;
 
             const batchSize = 200; // 50 → 200, 4배 증가로 DB 호출 75% 감소
             for (let i = 0; i < rowsDeferred.length; i += batchSize) {
@@ -347,7 +359,15 @@ export async function processSeedKeyword(
             await db.execute({ sql: 'COMMIT' });
             totalSaved += rowsDeferred.length;
         } catch (e: any) {
-            await db.execute({ sql: 'ROLLBACK' });
+            // Only rollback if transaction was actually started
+            if (transactionStarted) {
+                try {
+                    await db.execute({ sql: 'ROLLBACK' });
+                } catch (rollbackError: any) {
+                    // Ignore rollback errors (transaction might already be rolled back)
+                    console.error(`Rollback error (ignored):`, rollbackError.message);
+                }
+            }
             console.error(`DB Transaction UPSERT Error (Deferred):`, e);
             // Continue on error (ignore duplicates)
         }

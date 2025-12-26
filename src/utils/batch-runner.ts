@@ -364,8 +364,10 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         const now = getCurrentTimestamp();
 
         if (updates.length > 0) {
+            let transactionStarted = false;
             try {
                 await db.execute({ sql: 'BEGIN TRANSACTION' });
+                transactionStarted = true;
                 const batchSize = 200;
                 for (let i = 0; i < updates.length; i += batchSize) {
                     const batch = updates.slice(i, i + batchSize);
@@ -394,7 +396,15 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
                 }
                 await db.execute({ sql: 'COMMIT' });
             } catch (upsertError: any) {
-                await db.execute({ sql: 'ROLLBACK' });
+                // Only rollback if transaction was actually started
+                if (transactionStarted) {
+                    try {
+                        await db.execute({ sql: 'ROLLBACK' });
+                    } catch (rollbackError: any) {
+                        // Ignore rollback errors (transaction might already be rolled back)
+                        console.error('[Batch] Rollback error (ignored):', rollbackError.message);
+                    }
+                }
                 console.error('[Batch] Transaction UPSERT Error:', upsertError);
                 return {
                     processed: 0,

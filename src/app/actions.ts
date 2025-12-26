@@ -2,6 +2,7 @@
 
 import { runMiningBatch } from '@/utils/batch-runner';
 import { getTursoClient } from '@/utils/turso';
+import { processSeedKeyword } from '@/utils/mining-engine';
 
 export async function triggerMining() {
     try {
@@ -11,6 +12,57 @@ export async function triggerMining() {
     } catch (e: any) {
         console.error('Manual Trigger Error:', e);
         return { success: false, error: e.message };
+    }
+}
+
+export async function manualMining(keywords: string[]) {
+    try {
+        console.log('[manualMining] Starting with keywords:', keywords);
+        
+        if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
+            return { success: false, error: 'Keywords must be a non-empty array' };
+        }
+
+        const seeds = keywords
+            .map(k => k.trim())
+            .filter(Boolean)
+            .slice(0, 5); // Limit 5
+
+        if (seeds.length === 0) {
+            return { success: false, error: 'No valid keywords provided' };
+        }
+
+        console.log('[manualMining] Processing seeds:', seeds);
+        const results = [];
+
+        for (const seed of seeds) {
+            try {
+                console.log(`[manualMining] Processing seed: ${seed}`);
+                // For manual collection, we want to fetch document counts as well.
+                // Limit to 30 to avoid timeout (Vercel 60s limit)
+                const result = await processSeedKeyword(seed, 30, false, 1000, 300);
+                console.log(`[manualMining] Success for ${seed}: processed=${result.processed}, saved=${result.saved}`);
+                results.push({
+                    seed,
+                    success: true,
+                    data: result.items,
+                    stats: { processed: result.processed, saved: result.saved }
+                });
+            } catch (e: any) {
+                console.error(`[manualMining] Error processing ${seed}:`, e);
+                results.push({
+                    seed,
+                    success: false,
+                    error: e.message || 'Unknown error'
+                });
+            }
+        }
+
+        console.log('[manualMining] Completed. Results:', results.length);
+        return { success: true, results };
+    } catch (e: any) {
+        console.error('[manualMining] Fatal error:', e);
+        return { success: false, error: e.message || 'Unknown error occurred' };
     }
 }
 
