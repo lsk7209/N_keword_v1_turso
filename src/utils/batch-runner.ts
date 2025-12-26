@@ -145,6 +145,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 
         // 🚀 Atomic Claim: 한 번의 DB 호출로 배치를 선점하고 데이터를 가져옴 (is_expanded = 2 Processing)
         // Turso/SQLite 'UPDATE ... RETURNING' 지원 활용
+        // 🚀 수정: is_expanded = 2 (Processing) 상태로 남은 키워드도 재처리 대상에 포함
         let seedsData: any[] = [];
         try {
             const claimResult = await db.execute({
@@ -152,7 +153,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
                       SET is_expanded = 2
                       WHERE id IN (
                           SELECT id FROM keywords
-                          WHERE is_expanded = 0 AND total_search_cnt >= ?
+                          WHERE (is_expanded = 0 OR is_expanded = 2) AND total_search_cnt >= ?
                           ORDER BY total_search_cnt DESC
                           LIMIT ?
                       )

@@ -260,7 +260,12 @@ export async function processSeedKeyword(
                                 pl_avg_depth = excluded.pl_avg_depth,
                                 golden_ratio = excluded.golden_ratio,
                                 tier = excluded.tier,
-                                is_expanded = excluded.is_expanded,
+                                -- 기존 키워드의 is_expanded는 유지 (이미 확장된 키워드는 유지)
+                                -- 새로 추가되는 키워드만 is_expanded = 0으로 설정됨
+                                is_expanded = CASE 
+                                    WHEN keywords.is_expanded = 1 THEN keywords.is_expanded 
+                                    ELSE excluded.is_expanded 
+                                END,
                                 updated_at = excluded.updated_at`
                             : `INSERT INTO keywords (
                             id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
@@ -291,7 +296,12 @@ export async function processSeedKeyword(
                                 news_doc_cnt = excluded.news_doc_cnt,
                                 golden_ratio = excluded.golden_ratio,
                                 tier = excluded.tier,
-                                is_expanded = excluded.is_expanded,
+                                -- 기존 키워드의 is_expanded는 유지 (이미 확장된 키워드는 유지)
+                                -- 새로 추가되는 키워드만 is_expanded = 0으로 설정됨
+                                is_expanded = CASE 
+                                    WHEN keywords.is_expanded = 1 THEN keywords.is_expanded 
+                                    ELSE excluded.is_expanded 
+                                END,
                                 updated_at = excluded.updated_at`,
                         args: isDeferred
                             ? [
