@@ -49,6 +49,11 @@ export default async function MonitorPage() {
     let pendingDocs = 0;
     let newKeywords24h = 0;
     let docsFilled24h = 0;
+    let seedKeywordsTotal = 0;
+    let seedKeywordsPending = 0;
+    let seedKeywordsExpanded = 0;
+    let seedKeywordsProcessing = 0;
+    let recentSeeds: any[] = [];
 
     try {
         const db = getTursoClient();
@@ -63,7 +68,12 @@ export default async function MonitorPage() {
             goldResult,
             newKeywords24hResult,
             docsFilled24hResult,
-            logsResult
+            logsResult,
+            seedTotalResult,
+            seedPendingResult,
+            seedExpandedResult,
+            seedProcessingResult,
+            recentSeedsResult
         ] = await Promise.all([
             db.execute('SELECT COUNT(*) as count FROM keywords'),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NOT NULL'),
@@ -72,7 +82,13 @@ export default async function MonitorPage() {
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['GOLD']),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE created_at >= ?', [since24h]),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NOT NULL AND updated_at >= ?', [since24h]),
-            db.execute('SELECT * FROM keywords ORDER BY created_at DESC LIMIT 10')
+            db.execute('SELECT * FROM keywords ORDER BY created_at DESC LIMIT 10'),
+            // 시드키워드 현황 (검색량 1000 이상인 키워드)
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_search_cnt >= 1000'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 0 AND total_search_cnt >= 1000'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 1 AND total_search_cnt >= 1000'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 2 AND total_search_cnt >= 1000'),
+            db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 1000 ORDER BY total_search_cnt DESC LIMIT 20')
         ]);
 
         total = (totalResult.rows[0]?.count as number) || 0;
@@ -90,6 +106,18 @@ export default async function MonitorPage() {
             created_at: row.created_at
         }));
         pendingDocs = Math.max(total - analyzed, 0);
+        
+        // 시드키워드 현황
+        seedKeywordsTotal = (seedTotalResult.rows[0]?.count as number) || 0;
+        seedKeywordsPending = (seedPendingResult.rows[0]?.count as number) || 0;
+        seedKeywordsExpanded = (seedExpandedResult.rows[0]?.count as number) || 0;
+        seedKeywordsProcessing = (seedProcessingResult.rows[0]?.count as number) || 0;
+        recentSeeds = recentSeedsResult.rows.map(row => ({
+            keyword: row.keyword,
+            total_search_cnt: row.total_search_cnt,
+            is_expanded: row.is_expanded,
+            updated_at: row.updated_at
+        }));
 
     } catch (e: any) {
         console.error('Monitor Page Error:', e);
@@ -241,6 +269,72 @@ export default async function MonitorPage() {
                             {(!recentLogs || recentLogs.length === 0) && (
                                 <div className="text-center py-10 text-zinc-500">
                                     아직 데이터가 없습니다.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Seed Keywords Status Section */}
+                <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 border border-zinc-200 dark:border-zinc-800 shadow-sm">
+                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+                        <Layers className="w-5 h-5 text-zinc-500" />
+                        시드키워드 현황 (검색량 1,000+)
+                    </h3>
+                    
+                    {/* Seed Keywords Stats Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-lg">
+                            <div className="text-sm text-zinc-500 dark:text-zinc-400 mb-1">총 시드키워드</div>
+                            <div className="text-2xl font-bold font-mono">{seedKeywordsTotal.toLocaleString()}</div>
+                        </div>
+                        <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg">
+                            <div className="text-sm text-zinc-500 dark:text-zinc-400 mb-1">확장 대기</div>
+                            <div className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400">{seedKeywordsPending.toLocaleString()}</div>
+                        </div>
+                        <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-lg">
+                            <div className="text-sm text-zinc-500 dark:text-zinc-400 mb-1">확장 완료</div>
+                            <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">{seedKeywordsExpanded.toLocaleString()}</div>
+                        </div>
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                            <div className="text-sm text-zinc-500 dark:text-zinc-400 mb-1">확장 진행중</div>
+                            <div className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400">{seedKeywordsProcessing.toLocaleString()}</div>
+                        </div>
+                    </div>
+
+                    {/* Recent Seed Keywords */}
+                    <div>
+                        <h4 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3">검색량 상위 시드키워드 (최대 20개)</h4>
+                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                            {recentSeeds && recentSeeds.length > 0 ? (
+                                recentSeeds.map((seed: any, idx: number) => {
+                                    const statusText = seed.is_expanded === 0 ? '대기' : seed.is_expanded === 1 ? '완료' : '진행중';
+                                    const statusColor = seed.is_expanded === 0 ? 'text-amber-600 bg-amber-100 dark:bg-amber-900/30' 
+                                        : seed.is_expanded === 1 ? 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30'
+                                        : 'text-blue-600 bg-blue-100 dark:bg-blue-900/30';
+                                    
+                                    return (
+                                        <div key={idx} className="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors border border-zinc-100 dark:border-zinc-800">
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-xs text-zinc-400 font-mono w-8">#{idx + 1}</span>
+                                                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                                    {seed.keyword}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-xs text-zinc-400">
+                                                    {seed.total_search_cnt?.toLocaleString()}회
+                                                </span>
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${statusColor}`}>
+                                                    {statusText}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="text-center py-10 text-zinc-500">
+                                    시드키워드가 없습니다.
                                 </div>
                             )}
                         </div>
