@@ -414,7 +414,17 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 
                     await db.batch(statements);
                 }
-                await db.execute({ sql: 'COMMIT' });
+                
+                // 🚀 COMMIT도 안전하게 처리: 트랜잭션이 이미 롤백되었을 수 있음
+                try {
+                    await db.execute({ sql: 'COMMIT' });
+                } catch (commitError: any) {
+                    // COMMIT 실패 시 (트랜잭션이 이미 롤백되었을 수 있음)
+                    console.error('[Batch] COMMIT error (transaction may have been auto-rolled back):', commitError.message);
+                    // transactionStarted를 false로 설정하여 catch 블록에서 ROLLBACK을 시도하지 않도록 함
+                    transactionStarted = false;
+                    throw commitError; // 원래 에러를 다시 throw하여 catch 블록으로 전달
+                }
             } catch (upsertError: any) {
                 // Only rollback if transaction was actually started
                 if (transactionStarted) {
