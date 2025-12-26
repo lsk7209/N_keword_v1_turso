@@ -347,8 +347,8 @@ export default async function MonitorPage() {
 
             </div>
             
-            {/* Auto Refresh Component - refreshes page every 10 seconds */}
-            <AutoRefresh interval={10000} />
+            {/* Auto Refresh Component - refreshes page every 10 minutes */}
+            <AutoRefresh interval={600000} />
         </div>
     );
 }
