@@ -216,7 +216,7 @@ export async function processSeedKeyword(
     // 🚀 터보모드: 단일 트랜잭션으로 통합하여 DB 호출 최소화 (BEGIN/COMMIT 1회만)
     let totalSaved = 0;
     const allRows = [...rowsToInsert, ...rowsDeferred];
-    
+
     if (allRows.length > 0) {
         const now = getCurrentTimestamp();
         let transactionStarted = false;
@@ -231,43 +231,80 @@ export async function processSeedKeyword(
             for (let i = 0; i < allRows.length; i += batchSize) {
                 const batch = allRows.slice(i, i + batchSize);
                 const statements = batch.map(row => {
-                    const id = generateUUID();
-                    // rowsToInsert는 REPLACE, rowsDeferred는 IGNORE
+                    // 🚀 연관검색어 수집 수정: ON CONFLICT로 기존 키워드의 id 유지하면서 업데이트
+                    // 기존 키워드가 있으면 id를 유지하고 검색량 등 정보만 업데이트
                     const isDeferred = row.total_doc_cnt === null;
                     return {
                         sql: isDeferred 
-                            ? `INSERT OR IGNORE INTO keywords (
-                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                                pc_click_cnt, mo_click_cnt, click_cnt,
-                                pc_ctr, mo_ctr, total_ctr,
-                                comp_idx, pl_avg_depth,
-                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                                web_doc_cnt, news_doc_cnt,
-                                golden_ratio, tier, is_expanded,
-                                created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-                            : `INSERT OR REPLACE INTO keywords (
-                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                                pc_click_cnt, mo_click_cnt, click_cnt,
-                                pc_ctr, mo_ctr, total_ctr,
-                                comp_idx, pl_avg_depth,
-                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                                web_doc_cnt, news_doc_cnt,
-                                golden_ratio, tier, is_expanded,
-                                created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            ? `INSERT INTO keywords (
+                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                            pc_click_cnt, mo_click_cnt, click_cnt,
+                            pc_ctr, mo_ctr, total_ctr,
+                            comp_idx, pl_avg_depth,
+                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                            web_doc_cnt, news_doc_cnt,
+                            golden_ratio, tier, is_expanded,
+                            created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(keyword) DO UPDATE SET
+                                total_search_cnt = excluded.total_search_cnt,
+                                pc_search_cnt = excluded.pc_search_cnt,
+                                mo_search_cnt = excluded.mo_search_cnt,
+                                pc_click_cnt = excluded.pc_click_cnt,
+                                mo_click_cnt = excluded.mo_click_cnt,
+                                click_cnt = excluded.click_cnt,
+                                pc_ctr = excluded.pc_ctr,
+                                mo_ctr = excluded.mo_ctr,
+                                total_ctr = excluded.total_ctr,
+                                comp_idx = excluded.comp_idx,
+                                pl_avg_depth = excluded.pl_avg_depth,
+                                golden_ratio = excluded.golden_ratio,
+                                tier = excluded.tier,
+                                is_expanded = excluded.is_expanded,
+                                updated_at = excluded.updated_at`
+                            : `INSERT INTO keywords (
+                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                            pc_click_cnt, mo_click_cnt, click_cnt,
+                            pc_ctr, mo_ctr, total_ctr,
+                            comp_idx, pl_avg_depth,
+                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                            web_doc_cnt, news_doc_cnt,
+                            golden_ratio, tier, is_expanded,
+                            created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(keyword) DO UPDATE SET
+                                total_search_cnt = excluded.total_search_cnt,
+                                pc_search_cnt = excluded.pc_search_cnt,
+                                mo_search_cnt = excluded.mo_search_cnt,
+                                pc_click_cnt = excluded.pc_click_cnt,
+                                mo_click_cnt = excluded.mo_click_cnt,
+                                click_cnt = excluded.click_cnt,
+                                pc_ctr = excluded.pc_ctr,
+                                mo_ctr = excluded.mo_ctr,
+                                total_ctr = excluded.total_ctr,
+                                comp_idx = excluded.comp_idx,
+                                pl_avg_depth = excluded.pl_avg_depth,
+                                total_doc_cnt = excluded.total_doc_cnt,
+                                blog_doc_cnt = excluded.blog_doc_cnt,
+                                cafe_doc_cnt = excluded.cafe_doc_cnt,
+                                web_doc_cnt = excluded.web_doc_cnt,
+                                news_doc_cnt = excluded.news_doc_cnt,
+                                golden_ratio = excluded.golden_ratio,
+                                tier = excluded.tier,
+                                is_expanded = excluded.is_expanded,
+                                updated_at = excluded.updated_at`,
                         args: isDeferred
                             ? [
-                                id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                                row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                                row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                                row.comp_idx || null, row.pl_avg_depth || 0,
-                                null, 0, 0, 0, 0,
-                                0, row.tier, row.is_expanded ? 1 : 0,
-                                now, now
-                            ]
+                                generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                            row.comp_idx || null, row.pl_avg_depth || 0,
+                            null, 0, 0, 0, 0,
+                            0, row.tier, row.is_expanded ? 1 : 0,
+                            now, now
+                        ]
                             : [
-                                id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
                                 row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
                                 row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
                                 row.comp_idx || null, row.pl_avg_depth || 0,
@@ -287,7 +324,7 @@ export async function processSeedKeyword(
             // Only rollback if transaction was actually started
             if (transactionStarted) {
                 try {
-                    await db.execute({ sql: 'ROLLBACK' });
+            await db.execute({ sql: 'ROLLBACK' });
                 } catch (rollbackError: any) {
                     // Ignore rollback errors (transaction might already be rolled back)
                     console.error(`Rollback error (ignored):`, rollbackError.message);
