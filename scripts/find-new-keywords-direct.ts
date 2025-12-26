@@ -203,15 +203,15 @@ async function findNewKeywords() {
 
         // 3. 검색량 필터링
         const filteredKeywords = parsedKeywords
-            .filter(kw => kw.total_search_cnt >= minSearchVolume)
-            .sort((a, b) => b.total_search_cnt - a.total_search_cnt)
+            .filter((kw: any) => kw.total_search_cnt >= minSearchVolume)
+            .sort((a: any, b: any) => b.total_search_cnt - a.total_search_cnt)
             .slice(0, maxKeywords || parsedKeywords.length);
 
         console.log(`📊 검색량 필터링 후: ${filteredKeywords.length}개\n`);
 
         // 4. DB에 있는 키워드 확인
         console.log('🔍 데이터베이스에서 기존 키워드 확인 중...');
-        const keywordsToCheck = filteredKeywords.map(kw => kw.keyword);
+        const keywordsToCheck = filteredKeywords.map((kw: any) => kw.keyword);
         
         const existingKeywordsSet = new Set<string>();
         const batchSize = 500;
@@ -234,7 +234,7 @@ async function findNewKeywords() {
 
         // 5. 새로운 키워드 필터링
         const newKeywords = filteredKeywords.filter(
-            kw => !existingKeywordsSet.has(kw.keyword)
+            (kw: any) => !existingKeywordsSet.has(kw.keyword)
         );
 
         console.log('─'.repeat(100));
@@ -259,10 +259,10 @@ async function findNewKeywords() {
         });
 
         // 7. 통계
-        const totalSearchVolume = newKeywords.reduce((sum, kw) => sum + kw.total_search_cnt, 0);
+        const totalSearchVolume = newKeywords.reduce((sum: number, kw: any) => sum + kw.total_search_cnt, 0);
         const avgSearchVolume = Math.round(totalSearchVolume / newKeywords.length);
-        const maxSearchVolume = Math.max(...newKeywords.map(kw => kw.total_search_cnt));
-        const minSearchVolumeInResults = Math.min(...newKeywords.map(kw => kw.total_search_cnt));
+        const maxSearchVolume = Math.max(...newKeywords.map((kw: any) => kw.total_search_cnt));
+        const minSearchVolumeInResults = Math.min(...newKeywords.map((kw: any) => kw.total_search_cnt));
 
         console.log('─'.repeat(100));
         console.log('📊 통계:');
