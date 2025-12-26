@@ -247,27 +247,78 @@ export async function processSeedKeyword(
                             created_at, updated_at
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(keyword) DO UPDATE SET
-                                total_search_cnt = excluded.total_search_cnt,
-                                pc_search_cnt = excluded.pc_search_cnt,
-                                mo_search_cnt = excluded.mo_search_cnt,
-                                pc_click_cnt = excluded.pc_click_cnt,
-                                mo_click_cnt = excluded.mo_click_cnt,
-                                click_cnt = excluded.click_cnt,
-                                pc_ctr = excluded.pc_ctr,
-                                mo_ctr = excluded.mo_ctr,
-                                total_ctr = excluded.total_ctr,
-                                comp_idx = excluded.comp_idx,
-                                pl_avg_depth = excluded.pl_avg_depth,
-                                golden_ratio = excluded.golden_ratio,
-                                tier = excluded.tier,
+                                -- 🚀 30일 이후 업데이트: updated_at이 30일 이상 지난 키워드만 업데이트
+                                -- 최근에 업데이트된 키워드는 건드리지 않음
+                                total_search_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.total_search_cnt 
+                                    ELSE keywords.total_search_cnt 
+                                END,
+                                pc_search_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.pc_search_cnt 
+                                    ELSE keywords.pc_search_cnt 
+                                END,
+                                mo_search_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.mo_search_cnt 
+                                    ELSE keywords.mo_search_cnt 
+                                END,
+                                pc_click_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.pc_click_cnt 
+                                    ELSE keywords.pc_click_cnt 
+                                END,
+                                mo_click_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.mo_click_cnt 
+                                    ELSE keywords.mo_click_cnt 
+                                END,
+                                click_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.click_cnt 
+                                    ELSE keywords.click_cnt 
+                                END,
+                                pc_ctr = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.pc_ctr 
+                                    ELSE keywords.pc_ctr 
+                                END,
+                                mo_ctr = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.mo_ctr 
+                                    ELSE keywords.mo_ctr 
+                                END,
+                                total_ctr = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.total_ctr 
+                                    ELSE keywords.total_ctr 
+                                END,
+                                comp_idx = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.comp_idx 
+                                    ELSE keywords.comp_idx 
+                                END,
+                                pl_avg_depth = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.pl_avg_depth 
+                                    ELSE keywords.pl_avg_depth 
+                                END,
+                                golden_ratio = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.golden_ratio 
+                                    ELSE keywords.golden_ratio 
+                                END,
+                                tier = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.tier 
+                                    ELSE keywords.tier 
+                                END,
                                 -- 기존 키워드의 is_expanded는 유지 (이미 확장된 키워드는 유지)
-                                -- 새로 추가되는 키워드만 is_expanded = 0으로 설정됨
                                 is_expanded = CASE 
                                     WHEN keywords.is_expanded = 1 THEN keywords.is_expanded 
                                     ELSE excluded.is_expanded 
-                                END
-                                -- 🚀 updated_at 업데이트 제거: 기존 키워드의 원래 updated_at 유지
-                                -- 새로 추가되는 키워드만 created_at과 updated_at이 설정됨`
+                                END`
                             : `INSERT INTO keywords (
                             id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
                             pc_click_cnt, mo_click_cnt, click_cnt,
@@ -279,32 +330,103 @@ export async function processSeedKeyword(
                             created_at, updated_at
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(keyword) DO UPDATE SET
-                                total_search_cnt = excluded.total_search_cnt,
-                                pc_search_cnt = excluded.pc_search_cnt,
-                                mo_search_cnt = excluded.mo_search_cnt,
-                                pc_click_cnt = excluded.pc_click_cnt,
-                                mo_click_cnt = excluded.mo_click_cnt,
-                                click_cnt = excluded.click_cnt,
-                                pc_ctr = excluded.pc_ctr,
-                                mo_ctr = excluded.mo_ctr,
-                                total_ctr = excluded.total_ctr,
-                                comp_idx = excluded.comp_idx,
-                                pl_avg_depth = excluded.pl_avg_depth,
-                                total_doc_cnt = excluded.total_doc_cnt,
-                                blog_doc_cnt = excluded.blog_doc_cnt,
-                                cafe_doc_cnt = excluded.cafe_doc_cnt,
-                                web_doc_cnt = excluded.web_doc_cnt,
-                                news_doc_cnt = excluded.news_doc_cnt,
-                                golden_ratio = excluded.golden_ratio,
-                                tier = excluded.tier,
+                                -- 🚀 30일 이후 업데이트: updated_at이 30일 이상 지난 키워드만 업데이트
+                                -- 최근에 업데이트된 키워드는 건드리지 않음
+                                total_search_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.total_search_cnt 
+                                    ELSE keywords.total_search_cnt 
+                                END,
+                                pc_search_cnt = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.pc_search_cnt 
+                                    ELSE keywords.pc_search_cnt 
+                                END,
+                                mo_search_cnt = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.mo_search_cnt 
+                                    ELSE keywords.mo_search_cnt 
+                                END,
+                                pc_click_cnt = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.pc_click_cnt 
+                                    ELSE keywords.pc_click_cnt 
+                                END,
+                                mo_click_cnt = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.mo_click_cnt 
+                                    ELSE keywords.mo_click_cnt 
+                                END,
+                                click_cnt = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.click_cnt 
+                                    ELSE keywords.click_cnt 
+                                END,
+                                pc_ctr = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.pc_ctr 
+                                    ELSE keywords.pc_ctr 
+                                END,
+                                mo_ctr = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.mo_ctr 
+                                    ELSE keywords.mo_ctr 
+                                END,
+                                total_ctr = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.total_ctr 
+                                    ELSE keywords.total_ctr 
+                                END,
+                                comp_idx = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.comp_idx 
+                                    ELSE keywords.comp_idx 
+                                END,
+                                pl_avg_depth = CASE 
+                                    WHEN datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.pl_avg_depth 
+                                    ELSE keywords.pl_avg_depth 
+                                END,
+                                total_doc_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.total_doc_cnt 
+                                    ELSE keywords.total_doc_cnt 
+                                END,
+                                blog_doc_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.blog_doc_cnt 
+                                    ELSE keywords.blog_doc_cnt 
+                                END,
+                                cafe_doc_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.cafe_doc_cnt 
+                                    ELSE keywords.cafe_doc_cnt 
+                                END,
+                                web_doc_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.web_doc_cnt 
+                                    ELSE keywords.web_doc_cnt 
+                                END,
+                                news_doc_cnt = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.news_doc_cnt 
+                                    ELSE keywords.news_doc_cnt 
+                                END,
+                                golden_ratio = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.golden_ratio 
+                                    ELSE keywords.golden_ratio 
+                                END,
+                                tier = CASE 
+                                    WHEN keywords.updated_at IS NULL OR datetime(keywords.updated_at, '+30 days') <= datetime('now') 
+                                    THEN excluded.tier 
+                                    ELSE keywords.tier 
+                                END,
                                 -- 기존 키워드의 is_expanded는 유지 (이미 확장된 키워드는 유지)
-                                -- 새로 추가되는 키워드만 is_expanded = 0으로 설정됨
                                 is_expanded = CASE 
                                     WHEN keywords.is_expanded = 1 THEN keywords.is_expanded 
                                     ELSE excluded.is_expanded 
-                                END
-                                -- 🚀 updated_at 업데이트 제거: 기존 키워드의 원래 updated_at 유지
-                                -- 새로 추가되는 키워드만 created_at과 updated_at이 설정됨`,
+                                END`,
                         args: isDeferred
                             ? [
                                 generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
@@ -323,8 +445,8 @@ export async function processSeedKeyword(
                                 row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
                                 (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
                                 row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                                now, now
-                            ]
+                            now, now
+                        ]
                     };
                 });
                 await db.batch(statements);
