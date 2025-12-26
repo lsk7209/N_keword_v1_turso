@@ -6,11 +6,11 @@
     },
     "crons": [
         {
-            "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=200&expandConcurrency=50&minSearchVolume=1000&maxRunMs=55000",
+            "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=500&expandConcurrency=65&minSearchVolume=1000&maxRunMs=58000",
             "schedule": "*/5 * * * *"
         },
         {
-            "path": "/api/miner/execute?task=fill_docs&mode=TURBO&fillBatch=2000&fillConcurrency=200&maxRunMs=55000",
+            "path": "/api/miner/execute?task=fill_docs&mode=TURBO&fillBatch=3000&fillConcurrency=240&maxRunMs=58000",
             "schedule": "2-59/5 * * * *"
         }
     ],

@@ -87,7 +87,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         ? options.task
         : 'all';
 
-    const maxRunMs = clampInt(options.maxRunMs, 10_000, 58_000, 55_000);
+    // 🚀 터보모드: 최대 실행 시간 확대 (55초 → 58초)로 더 많은 처리
+    const maxRunMs = clampInt(options.maxRunMs, 10_000, 58_000, 58_000);
     const deadline = start + maxRunMs;
 
     // 터보모드: API 키 수에 따른 동적 확장 (Aggressive)
@@ -175,7 +176,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         let stopDueToDeadline = false;
 
         const expandResults = await mapWithConcurrency(seedsData, EXPAND_CONCURRENCY, async (seed) => {
-            if (Date.now() > (deadline - 2500)) {
+            // 🚀 터보모드: deadline 체크 완화 (2500ms → 1000ms)로 더 많은 시드 처리
+            if (Date.now() > (deadline - 1000)) {
                 stopDueToDeadline = true;
                 return { status: 'skipped_deadline', seed };
             }
@@ -287,7 +289,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         let stopDueToDeadline = false;
 
         const processedResults = await mapWithConcurrency(docsToFill, CONCURRENCY, async (item) => {
-            if (Date.now() > (deadline - 2500)) {
+            // 🚀 터보모드: deadline 체크 완화 (2500ms → 1000ms)로 더 많은 키워드 처리
+            if (Date.now() > (deadline - 1000)) {
                 stopDueToDeadline = true;
                 return { status: 'skipped_deadline', item };
             }
