@@ -148,12 +148,14 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
         // 🚀 수정: is_expanded = 2 (Processing) 상태로 남은 키워드도 재처리 대상에 포함
         let seedsData: any[] = [];
         try {
+            // 🚀 수정: 이미 확장된 키워드도 재확장 대상에 포함 (무한 확장으로 더 많은 키워드 수집)
+            // is_expanded = 0, 1, 2 모두 포함하여 최대한 많은 키워드 수집
             const claimResult = await db.execute({
                 sql: `UPDATE keywords
                       SET is_expanded = 2
                       WHERE id IN (
                           SELECT id FROM keywords
-                          WHERE (is_expanded = 0 OR is_expanded = 2) AND total_search_cnt >= ?
+                          WHERE (is_expanded = 0 OR is_expanded = 1 OR is_expanded = 2) AND total_search_cnt >= ?
                           ORDER BY total_search_cnt DESC
                           LIMIT ?
                       )
