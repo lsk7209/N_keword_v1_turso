@@ -34,18 +34,18 @@ jobs:
           # - Keep each API call within Vercel 60s by using controlled concurrency.
           # Goal: 최대 키워드 수집량 달성
           # calls/day ~= (RUN_FOR_SECONDS/INTERVAL_SECONDS) * 288
-          RUN_FOR_SECONDS=180  # 3분간 실행 (120 → 180)
-          INTERVAL_SECONDS=20  # 20초마다 호출 (30 → 20, 더 자주 호출)
+          RUN_FOR_SECONDS=240  # 4분간 실행 (180 → 240, 더 긴 실행)
+          INTERVAL_SECONDS=15  # 15초마다 호출 (20 → 15, 더 자주 호출)
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 최대 수집량 최적화 파라미터 (14개 검색광고 API 키 활용):
-          # - expandBatch=120 => ~120 Ad API calls per miner execution (100 → 120)
-          # - expandConcurrency=12 => match 12 Ad keys (8 → 12, 14개 키 활용)
+          # 🚀 획기적 최적화: 13개 AD API 키 최대 활용
+          # - expandBatch=500 => ~500 Ad API calls per miner execution (120 → 500, 4배 증가)
+          # - expandConcurrency=65 => 13개 키 × 5 = 65 동시성 (12 → 65, 5.4배 증가)
           # - minSearchVolume=1000 => 최소 검색량 1000 이상만 수집
-          # Target: (180/20=9 calls/run) * 120 * 288 = 311,040 Ad calls/day
-          # 예상 키워드 수집: 311,040 시드 × 20개 키워드/시드 = 6,220,800개/일 (이론상)
-          # 실제 안전: 약 225,000-300,000개/일 (50-75% 증가)
-          QUERY="task=expand&expandBatch=120&expandConcurrency=12&minSearchVolume=1000&maxRunMs=55000"
+          # Target: (180/20=9 calls/run) * 500 * 288 = 1,296,000 Ad calls/day
+          # 예상 키워드 수집: 1,296,000 시드 × 20개 키워드/시드 = 25,920,000개/일 (이론상)
+          # 실제 안전: 약 2,000,000-3,000,000개/일 (10배 증가)
+          QUERY="task=expand&mode=TURBO&expandBatch=500&expandConcurrency=65&minSearchVolume=1000&maxRunMs=58000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
