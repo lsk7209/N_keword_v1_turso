@@ -248,7 +248,7 @@ async function findNewKeywords() {
 
         // 6. 결과 출력
         console.log('📋 새로운 키워드 목록:\n');
-        newKeywords.forEach((kw, idx) => {
+        newKeywords.forEach((kw: any, idx: number) => {
             console.log(`${idx + 1}. ${kw.keyword}`);
             console.log(`   검색량: ${kw.total_search_cnt.toLocaleString()} (PC: ${kw.pc_search_cnt.toLocaleString()}, Mobile: ${kw.mo_search_cnt.toLocaleString()})`);
             console.log(`   클릭수: ${kw.click_cnt.toLocaleString()}, CTR: ${kw.total_ctr.toFixed(2)}%`);
