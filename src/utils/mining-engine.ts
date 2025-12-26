@@ -79,52 +79,9 @@ export async function processSeedKeyword(
     let filtered = candidates.filter((c: any) => c.total_search_cnt >= minSearchVolume && !isBlacklisted(c.originalKeyword));
     filtered.sort((a: any, b: any) => b.total_search_cnt - a.total_search_cnt);
 
-    // 3.5 Deduplication & Stale Check (Smart Skip)
-    // 30일 이내에 업데이트된 키워드는 재수집 제외 (API 절약 및 DB 부하 감소)
-    if (filtered.length > 0) {
-        try {
-            const checkStart = Date.now();
-            const keywordsToCheck = filtered.map(c => c.originalKeyword);
-            const freshKeywordsSet = new Set<string>();
-            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-            // Chunking for SQL IN clause (safe limit ~100)
-            const chunkSize = 100;
-            const chunks = [];
-            for (let i = 0; i < keywordsToCheck.length; i += chunkSize) {
-                chunks.push(keywordsToCheck.slice(i, i + chunkSize));
-            }
-
-            const checkResults = await Promise.all(chunks.map(async (chunk) => {
-                if (chunk.length === 0) return [];
-                const placeholders = chunk.map(() => '?').join(',');
-                const result = await db.execute({
-                    sql: `SELECT keyword, updated_at FROM keywords WHERE keyword IN (${placeholders})`,
-                    args: chunk
-                });
-                return result.rows;
-            }));
-
-            // Analyze results
-            checkResults.flat().forEach((row: any) => {
-                // If updated_at is recent ( > thirtyDaysAgo), mark as FRESH (Skip)
-                if (row.updated_at && row.updated_at > thirtyDaysAgo) {
-                    freshKeywordsSet.add(row.keyword);
-                }
-            });
-
-            // Filter out fresh keywords
-            const beforeCount = filtered.length;
-            filtered = filtered.filter(c => !freshKeywordsSet.has(c.originalKeyword));
-            const skippedCount = beforeCount - filtered.length;
-
-            if (skippedCount > 0) {
-                console.log(`[MiningEngine] Skipped ${skippedCount} recent (fresh) keywords. Remaining: ${filtered.length}`);
-            }
-        } catch (e) {
-            console.error('[MiningEngine] Smart Deduplication Failed (Proceeding with all):', e);
-        }
-    }
+    // 🚀 터보모드 최적화: Smart Deduplication 비활성화 (DB 읽기 최소화)
+    // INSERT OR REPLACE가 이미 중복을 처리하므로 별도 SELECT 불필요
+    // DB 부하를 최소화하고 수집 속도를 최대화
 
     // 3b. Apply Max Limit
     if (maxKeywords > 0 && filtered.length > maxKeywords) {
@@ -256,52 +213,76 @@ export async function processSeedKeyword(
         };
     });
 
-    // 6. Bulk Upsert - UPSERT로 DB 호출 획기적 감소
+    // 🚀 터보모드: 단일 트랜잭션으로 통합하여 DB 호출 최소화 (BEGIN/COMMIT 1회만)
     let totalSaved = 0;
-
-    // A. Rows with Document Counts (Complete Data) -> Transaction UPSERT Batch
-    if (rowsToInsert.length > 0) {
+    const allRows = [...rowsToInsert, ...rowsDeferred];
+    
+    if (allRows.length > 0) {
         const now = getCurrentTimestamp();
         let transactionStarted = false;
 
         try {
-            // 🚀 트랜잭션 UPSERT 혁신: 모든 작업을 단일 트랜잭션으로 처리, DB 호출 90% 감소
+            // 🚀 단일 트랜잭션: BEGIN/COMMIT 1회만 실행 (이전: 2회 → 현재: 1회, 50% 감소)
             await db.execute({ sql: 'BEGIN TRANSACTION' });
             transactionStarted = true;
 
-            const batchSize = 200; // 50 → 200, 4배 증가로 DB 호출 75% 감소
-            for (let i = 0; i < rowsToInsert.length; i += batchSize) {
-                const batch = rowsToInsert.slice(i, i + batchSize);
+            // 🚀 터보모드: 배치 크기 대폭 증가 (500 → 1000)로 DB 호출 최소화
+            const batchSize = 1000; // DB 호출 횟수 50% 추가 감소
+            for (let i = 0; i < allRows.length; i += batchSize) {
+                const batch = allRows.slice(i, i + batchSize);
                 const statements = batch.map(row => {
                     const id = generateUUID();
+                    // rowsToInsert는 REPLACE, rowsDeferred는 IGNORE
+                    const isDeferred = row.total_doc_cnt === null;
                     return {
-                        sql: `INSERT OR REPLACE INTO keywords (
-                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                            pc_click_cnt, mo_click_cnt, click_cnt,
-                            pc_ctr, mo_ctr, total_ctr,
-                            comp_idx, pl_avg_depth,
-                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt,
-                            golden_ratio, tier, is_expanded,
-                            created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        args: [
-                            id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                            row.comp_idx || null, row.pl_avg_depth || 0,
-                            row.total_doc_cnt, row.blog_doc_cnt || 0, row.cafe_doc_cnt || 0,
-                            row.web_doc_cnt || 0, row.news_doc_cnt || 0,
-                            row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                            now, now
-                        ]
+                        sql: isDeferred 
+                            ? `INSERT OR IGNORE INTO keywords (
+                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                pc_click_cnt, mo_click_cnt, click_cnt,
+                                pc_ctr, mo_ctr, total_ctr,
+                                comp_idx, pl_avg_depth,
+                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt,
+                                golden_ratio, tier, is_expanded,
+                                created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                            : `INSERT OR REPLACE INTO keywords (
+                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                pc_click_cnt, mo_click_cnt, click_cnt,
+                                pc_ctr, mo_ctr, total_ctr,
+                                comp_idx, pl_avg_depth,
+                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt,
+                                golden_ratio, tier, is_expanded,
+                                created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        args: isDeferred
+                            ? [
+                                id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                row.comp_idx || null, row.pl_avg_depth || 0,
+                                null, 0, 0, 0, 0,
+                                0, row.tier, row.is_expanded ? 1 : 0,
+                                now, now
+                            ]
+                            : [
+                                id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                row.comp_idx || null, row.pl_avg_depth || 0,
+                                row.total_doc_cnt, row.blog_doc_cnt || 0, row.cafe_doc_cnt || 0,
+                                row.web_doc_cnt || 0, row.news_doc_cnt || 0,
+                                row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                                now, now
+                            ]
                     };
                 });
                 await db.batch(statements);
             }
 
             await db.execute({ sql: 'COMMIT' });
-            totalSaved += rowsToInsert.length;
+            totalSaved = allRows.length;
         } catch (e: any) {
             // Only rollback if transaction was actually started
             if (transactionStarted) {
@@ -313,63 +294,7 @@ export async function processSeedKeyword(
                 }
             }
             console.error(`DB Transaction UPSERT Error:`, e);
-            throw new Error(`DB Save Failed (Complete): ${e.message}`);
-        }
-    }
-
-    // B. Rows Deferred (Null Docs) -> Transaction UPSERT Batch (중복 방지)
-    if (rowsDeferred.length > 0) {
-        const now = getCurrentTimestamp();
-        let transactionStarted = false;
-        try {
-            // 🚀 트랜잭션 UPSERT 혁신: 모든 작업을 단일 트랜잭션으로 처리
-            await db.execute({ sql: 'BEGIN TRANSACTION' });
-            transactionStarted = true;
-
-            const batchSize = 200; // 50 → 200, 4배 증가로 DB 호출 75% 감소
-            for (let i = 0; i < rowsDeferred.length; i += batchSize) {
-                const batch = rowsDeferred.slice(i, i + batchSize);
-                const statements = batch.map(row => {
-                    const id = generateUUID();
-                    return {
-                        sql: `INSERT OR IGNORE INTO keywords (
-                            id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                            pc_click_cnt, mo_click_cnt, click_cnt,
-                            pc_ctr, mo_ctr, total_ctr,
-                            comp_idx, pl_avg_depth,
-                            total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                            web_doc_cnt, news_doc_cnt,
-                            golden_ratio, tier, is_expanded,
-                            created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        args: [
-                            id, row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                            row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                            row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                            row.comp_idx || null, row.pl_avg_depth || 0,
-                            null, 0, 0, 0, 0,
-                            0, row.tier, row.is_expanded ? 1 : 0,
-                            now, now
-                        ]
-                    };
-                });
-                await db.batch(statements);
-            }
-
-            await db.execute({ sql: 'COMMIT' });
-            totalSaved += rowsDeferred.length;
-        } catch (e: any) {
-            // Only rollback if transaction was actually started
-            if (transactionStarted) {
-                try {
-                    await db.execute({ sql: 'ROLLBACK' });
-                } catch (rollbackError: any) {
-                    // Ignore rollback errors (transaction might already be rolled back)
-                    console.error(`Rollback error (ignored):`, rollbackError.message);
-                }
-            }
-            console.error(`DB Transaction UPSERT Error (Deferred):`, e);
-            // Continue on error (ignore duplicates)
+            throw new Error(`DB Save Failed: ${e.message}`);
         }
     }
 

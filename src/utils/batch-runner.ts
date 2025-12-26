@@ -50,30 +50,38 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const start = Date.now();
     console.log('[Batch] Starting Parallel Mining Batch...');
 
-    // 터보모드 확인 (API 키 최대 활용을 위한 배치 크기 조정)
-    const settingResult = await db.execute({
-        sql: 'SELECT value FROM settings WHERE key = ?',
-        args: ['mining_mode']
-    });
-    const setting = settingResult.rows.length > 0 ? { value: settingResult.rows[0].value } : null;
-
-    // JSONB 값 파싱 (getMiningMode와 동일한 로직)
-    let mode: MiningMode = 'TURBO'; // 기본값은 TURBO
-    if (setting) {
-        const rawValue = (setting as any)?.value;
-        if (typeof rawValue === 'string') {
-            mode = rawValue.replace(/^"|"$/g, '').toUpperCase() as MiningMode;
-        } else {
-            mode = String(rawValue).toUpperCase() as MiningMode;
-        }
-        if (mode !== 'NORMAL' && mode !== 'TURBO') {
-            mode = 'TURBO'; // 기본값은 TURBO
-        }
-    }
+    // 🚀 터보모드: DB 읽기 최소화 - options.mode 우선, 없으면 기본값 TURBO 사용
+    // settings 테이블 조회는 선택적으로만 수행 (DB 읽기 1회 절약)
+    let mode: MiningMode = 'TURBO'; // 기본값은 TURBO (대량 수집 최적화)
+    let isTurboMode = true;
+    
     if (options.mode === 'NORMAL' || options.mode === 'TURBO') {
         mode = options.mode;
+        isTurboMode = mode === 'TURBO';
+    } else {
+        // options.mode가 없을 때만 DB 조회 (최소화)
+        try {
+            const settingResult = await db.execute({
+                sql: 'SELECT value FROM settings WHERE key = ?',
+                args: ['mining_mode']
+            });
+            if (settingResult.rows.length > 0) {
+                const rawValue = (settingResult.rows[0] as any).value;
+                if (typeof rawValue === 'string') {
+                    mode = rawValue.replace(/^"|"$/g, '').toUpperCase() as MiningMode;
+                } else {
+                    mode = String(rawValue).toUpperCase() as MiningMode;
+                }
+                if (mode !== 'NORMAL' && mode !== 'TURBO') {
+                    mode = 'TURBO';
+                }
+                isTurboMode = mode === 'TURBO';
+            }
+        } catch (e) {
+            // DB 조회 실패 시 기본값 TURBO 사용
+            console.warn('[Batch] Failed to read mining_mode from DB, using TURBO default');
+        }
     }
-    const isTurboMode = mode === 'TURBO';
 
     const task: MiningTask = (options.task === 'expand' || options.task === 'fill_docs' || options.task === 'all')
         ? options.task
@@ -86,38 +94,43 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const searchKeyCount = keyManager.getKeyCount('SEARCH');
     const adKeyCount = keyManager.getKeyCount('AD');
 
-    // 기본값 설정 (Base settings)
-    let baseExpandConcurrency = isTurboMode ? 12 : 4;
-    let baseFillConcurrency = isTurboMode ? 28 : 20;
+    // 🚀 터보모드: 최대 성능을 위한 공격적 설정
+    // AD Key: 개당 4-5배 (터보모드에서는 최대한 활용)
+    // 최소 12개, 키가 많을수록 증가 (최대 제한 없음)
+    let baseExpandConcurrency = isTurboMode 
+        ? Math.max(12, adKeyCount * 5)  // 터보: 키당 5배, 최소 12
+        : Math.max(4, adKeyCount * 2);  // 일반: 키당 2배, 최소 4
+    
+    // Search Key: 개당 5-6배 (터보모드에서는 최대한 활용)
+    // 최소 28개, 키가 많을수록 증가 (최대 제한 없음)
+    let baseFillConcurrency = isTurboMode
+        ? Math.max(28, searchKeyCount * 6)  // 터보: 키당 6배, 최소 28
+        : Math.max(20, searchKeyCount * 3); // 일반: 키당 3배, 최소 20
 
-    // 키가 매우 많을 경우를 위한 스케일링 (Dynamic Scaling - Aggressive)
-    if (isTurboMode) {
-        // AD Key: 개당 3배 (검색광고 API는 QPS 제한이 덜함)
-        if (adKeyCount > 5) {
-            baseExpandConcurrency = Math.min(100, Math.max(12, adKeyCount * 3));
-        }
-        // Search Key: 개당 5배 (30개 키 -> 150 동시성)
-        // 30 keys * 5 = 150 requests at once. Each takes ~200ms-500ms. 
-        // 150 req / 0.5s = 300 TPS. Naver rate limits might get hit if one key is reused too fast per type.
-        // But we have 4 types (blog, cafe, etc).
-        // Let's go with * 4 to be safe but fast.
-        if (searchKeyCount > 5) {
-            baseFillConcurrency = Math.min(400, Math.max(28, searchKeyCount * 4));
-        }
-    }
+    console.log(`[Batch] 🚀 TURBO Mode: Key-based concurrency: AD keys=${adKeyCount} → expand=${baseExpandConcurrency}, SEARCH keys=${searchKeyCount} → fill=${baseFillConcurrency}`);
 
     const SEED_COUNT = clampInt(options.seedCount, 0, 50, isTurboMode ? 20 : 5);
 
-    // Concurrency 결정
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 100, baseExpandConcurrency);
-    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 400, baseFillConcurrency);
+    // 🚀 터보모드: 동시성 제한을 크게 확대
+    // EXPAND: 최대 200까지 허용 (터보모드에서는 더 많은 동시 처리)
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, isTurboMode ? 200 : 100, baseExpandConcurrency);
+    // FILL_DOCS: 최대 500까지 허용 (터보모드에서는 더 많은 동시 처리)
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, isTurboMode ? 500 : 400, baseFillConcurrency);
 
-    // Batch Size 결정
-    const expandBatchBase = isTurboMode ? (baseExpandConcurrency * 8) : 50;
-    const fillDocsBatchBase = isTurboMode ? (baseFillConcurrency * 10) : 100;
+    // 🚀 터보모드: 배치 크기를 최대한 크게 설정
+    // EXPAND: 동시성의 10-12배 (터보모드에서는 더 많은 시드 처리)
+    const expandBatchBase = isTurboMode
+        ? Math.max(100, baseExpandConcurrency * 12)  // 터보: 12배, 최소 100
+        : Math.max(50, baseExpandConcurrency * 8);   // 일반: 8배, 최소 50
+    
+    // FILL_DOCS: 동시성의 8-10배 (터보모드에서는 더 많은 키워드 처리)
+    const fillDocsBatchBase = isTurboMode
+        ? Math.max(200, baseFillConcurrency * 10)  // 터보: 10배, 최소 200
+        : Math.max(100, baseFillConcurrency * 5);  // 일반: 5배, 최소 100
 
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 1000, expandBatchBase);
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 5000, fillDocsBatchBase);
+    // 🚀 터보모드: 배치 크기 제한을 크게 확대
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, isTurboMode ? 2000 : 1000, expandBatchBase);
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, isTurboMode ? 10000 : 5000, fillDocsBatchBase);
 
     // 최소 검색량 1000 강제 (쿼리 파라미터로 0이 전달되어도 최소 1000 적용)
     const MIN_SEARCH_VOLUME = Math.max(1000, clampInt(options.minSearchVolume, 0, 50_000, 1000));
@@ -368,7 +381,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
             try {
                 await db.execute({ sql: 'BEGIN TRANSACTION' });
                 transactionStarted = true;
-                const batchSize = 200;
+                // 🚀 터보모드: 배치 크기 대폭 증가 (200 → 1000)로 DB 호출 최소화
+                const batchSize = 1000; // DB 호출 횟수 80% 감소
                 for (let i = 0; i < updates.length; i += batchSize) {
                     const batch = updates.slice(i, i + batchSize);
                     const statements = batch.map(update => ({

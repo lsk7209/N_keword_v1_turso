@@ -58,15 +58,14 @@ export async function fetchRelatedKeywords(seed: string) {
                 headers['X-Customer'] = customerId;
             }
 
-            console.log(`[NaverAPI] Attempt ${i + 1}/3, calling Ad API...`);
+            // 터보모드: 로깅 최소화로 성능 향상
             const response = await fetch(url, { headers });
-            console.log(`[NaverAPI] Response status: ${response.status}`);
 
             if (response.status === 429) {
                 keyManager.report429(key.id, 'AD');
-                console.warn(`[NaverAPI] Ad Key ${key.id} rate limited. Retrying...`);
-                await sleep(3000); // gentle backoff per notice
-                continue; // Try next key
+                console.warn(`[NaverAPI] Ad Key ${key.id.substring(0, 8)}... rate limited. Retrying with next key...`);
+                // 다음 키로 즉시 전환 (cooldown은 이미 설정됨)
+                continue; // Try next key immediately
             }
 
             if (!response.ok) {
@@ -97,10 +96,10 @@ export async function fetchRelatedKeywords(seed: string) {
         } catch (e) {
             console.error(`[NaverAPI] Exception on attempt ${i + 1}:`, e);
             lastError = e;
-            await sleep(1000);
-            // Verify if we should stop strictly? KeyManager throws if NO keys left.
-            // If it's a 'No keys' error, break.
+            // 네트워크 오류가 아닌 경우 즉시 다음 키로 전환
             if (e instanceof Error && e.message.includes('No AD keys')) throw e;
+            // 짧은 대기 후 다음 키 시도 (네트워크 오류 대비)
+            if (i < 2) await sleep(500); // 3번째 시도 전에만 대기
         }
     }
 

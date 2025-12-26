@@ -38,7 +38,12 @@ export default function ManualMiner() {
                 throw new Error(response.error || '수집 중 오류 발생');
             }
 
-            // Flatten results
+            // Flatten results - 타입 가드 추가
+            if (!response.results || !Array.isArray(response.results)) {
+                setError('결과 데이터가 없습니다.');
+                return;
+            }
+
             const allItems = response.results
                 .filter((r: any) => r.success)
                 .flatMap((r: any) => r.data || []);
