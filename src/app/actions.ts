@@ -38,12 +38,12 @@ export async function manualMining(keywords: string[]) {
         for (const seed of seeds) {
             try {
                 console.log(`[manualMining] 🔍 Processing seed: "${seed}"`);
-                console.log(`[manualMining] 📋 Parameters: limitDocCount=30, skipDocFetch=false, minSearchVolume=1000, maxKeywords=300`);
+                console.log(`[manualMining] 📋 Parameters: limitDocCount=30, skipDocFetch=false, minSearchVolume=1000, maxKeywords=1000`);
                 
                 // For manual collection, we want to fetch document counts as well.
                 // Limit to 30 to avoid timeout (Vercel 60s limit)
                 const startTime = Date.now();
-                const result = await processSeedKeyword(seed, 30, false, 1000, 300);
+                const result = await processSeedKeyword(seed, 30, false, 1000, 1000);
                 const duration = Date.now() - startTime;
                 
                 console.log(`[manualMining] ✅ Success for "${seed}" (${duration}ms):`, {
