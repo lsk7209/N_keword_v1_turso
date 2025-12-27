@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     concurrency:
-      # miner.yml과 동일한 그룹으로 동시 실행 방지
-      group: miner-cron
+      # 문서수 수집 전용 그룹 (키워드 확장과 독립 실행)
+      group: document-fill-cron
       cancel-in-progress: false
     
     steps:

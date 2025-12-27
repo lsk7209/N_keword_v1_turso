@@ -54,7 +54,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     // settings 테이블 조회는 선택적으로만 수행 (DB 읽기 1회 절약)
     let mode: MiningMode = 'TURBO'; // 기본값은 TURBO (대량 수집 최적화)
     let isTurboMode = true;
-    
+
     if (options.mode === 'NORMAL' || options.mode === 'TURBO') {
         mode = options.mode;
         isTurboMode = mode === 'TURBO';
@@ -98,10 +98,10 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     // 🚀 터보모드: 최대 성능을 위한 공격적 설정 (API 키 최대 활용)
     // AD Key: 개당 8-10배 (터보모드에서는 최대한 활용)
     // 최소 20개, 키가 많을수록 증가 (최대 제한 없음)
-    let baseExpandConcurrency = isTurboMode 
+    let baseExpandConcurrency = isTurboMode
         ? Math.max(20, adKeyCount * 10)  // 터보: 키당 10배, 최소 20 (5배 → 10배로 증가)
         : Math.max(4, adKeyCount * 2);  // 일반: 키당 2배, 최소 4
-    
+
     // Search Key: 개당 10-12배 (터보모드에서는 최대한 활용)
     // 최소 50개, 키가 많을수록 증가 (최대 제한 없음)
     let baseFillConcurrency = isTurboMode
@@ -123,7 +123,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const expandBatchBase = isTurboMode
         ? Math.max(200, baseExpandConcurrency * 20)  // 터보: 20배, 최소 200 (12배 → 20배로 증가)
         : Math.max(50, baseExpandConcurrency * 8);   // 일반: 8배, 최소 50
-    
+
     // FILL_DOCS: 동시성의 15-20배 (터보모드에서는 더 많은 키워드 처리)
     const fillDocsBatchBase = isTurboMode
         ? Math.max(500, baseFillConcurrency * 20)  // 터보: 20배, 최소 500 (10배 → 20배로 증가)
@@ -145,18 +145,30 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 
         // 🚀 Atomic Claim: 한 번의 DB 호출로 배치를 선점하고 데이터를 가져옴 (is_expanded = 2 Processing)
         // Turso/SQLite 'UPDATE ... RETURNING' 지원 활용
-        // 🚀 수정: is_expanded = 2 (Processing) 상태로 남은 키워드도 재처리 대상에 포함
+        // 🚀 효율적 확장 전략:
+        // 1순위: 미확장 키워드 (is_expanded = 0) - 새로운 키워드 발굴
+        // 2순위: Processing 상태 (is_expanded = 2) - 이전 실행 중단 건 재시도
+        // 3순위: 7일 이상 경과 (is_expanded = 1 AND updated_at < 7 days) - 트렌드 변화 반영
         let seedsData: any[] = [];
         try {
-            // 🚀 수정: 이미 확장된 키워드도 재확장 대상에 포함 (무한 확장으로 더 많은 키워드 수집)
-            // is_expanded = 0, 1, 2 모두 포함하여 최대한 많은 키워드 수집
             const claimResult = await db.execute({
                 sql: `UPDATE keywords
                       SET is_expanded = 2
                       WHERE id IN (
                           SELECT id FROM keywords
-                          WHERE (is_expanded = 0 OR is_expanded = 1 OR is_expanded = 2) AND total_search_cnt >= ?
-                          ORDER BY total_search_cnt DESC
+                          WHERE (
+                            is_expanded = 0 
+                            OR is_expanded = 2
+                            OR (is_expanded = 1 AND updated_at < datetime('now', '-7 days'))
+                          ) 
+                          AND total_search_cnt >= ?
+                          ORDER BY 
+                            CASE 
+                              WHEN is_expanded = 0 THEN 0
+                              WHEN is_expanded = 2 THEN 1
+                              ELSE 2
+                            END,
+                            total_search_cnt DESC
                           LIMIT ?
                       )
                       RETURNING id, keyword, total_search_cnt`,
@@ -394,10 +406,10 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
                 // 🚀 FIX: db.batch()는 내부적으로 자체 트랜잭션을 관리하므로 BEGIN/COMMIT 불필요
                 // Turso/libsql의 db.batch()는 자동으로 트랜잭션을 시작하고 커밋합니다.
                 // 외부에서 BEGIN/COMMIT을 사용하면 충돌이 발생하여 "cannot commit - no transaction is active" 에러가 발생합니다.
-                
+
                 // 🚀 터보모드: 배치 크기 대폭 증가 (200 → 1000)로 DB 호출 최소화
                 const batchSize = 1000; // DB 호출 횟수 80% 감소
-                
+
                 for (let i = 0; i < updates.length; i += batchSize) {
                     const batch = updates.slice(i, i + batchSize);
                     const statements = batch.map(update => ({

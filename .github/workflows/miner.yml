@@ -2,7 +2,7 @@ name: Golden Keyword Miner Cron
 
 on:
   schedule:
-    - cron: '*/3 * * * *' # Run every 3 minutes (UTC) - 공격적 모드 (5분 → 3분으로 단축)
+    - cron: '*/5 * * * *' # Run every 5 minutes (GitHub 권장 최소 주기)
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10 # 3분 크론 내에서 루프 호출로 처리량 극대화 (8분 → 10분으로 증가)
     concurrency:
-      group: miner-cron
+      group: keyword-expand-cron
       cancel-in-progress: false
     
     steps:
@@ -34,7 +34,7 @@ jobs:
           # - Keep each API call within Vercel 60s by using controlled concurrency.
           # Goal: 최대 키워드 수집량 달성
           # calls/day ~= (RUN_FOR_SECONDS/INTERVAL_SECONDS) * 288
-          RUN_FOR_SECONDS=300  # 5분간 실행 (240 → 300, 더 긴 실행)
+          RUN_FOR_SECONDS=420  # 7분간 실행 (5분 주기에 맞춰 최대 활용)
           INTERVAL_SECONDS=10  # 10초마다 호출 (15 → 10, 더 자주 호출)
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
