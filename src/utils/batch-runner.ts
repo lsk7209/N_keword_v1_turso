@@ -187,9 +187,16 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 
             try {
                 const res = await processSeedKeyword(seed.keyword, 0, true, MIN_SEARCH_VOLUME);
+                if (res.saved === 0) {
+                    console.warn(`[Batch] ⚠️ Seed "${seed.keyword}" processed but saved 0 keywords (processed: ${res.processed})`);
+                }
                 return { status: 'fulfilled', seed, saved: res.saved };
             } catch (e: any) {
-                console.error(`[Batch] Seed Failed: ${seed.keyword} - ${e.message}`);
+                console.error(`[Batch] ❌ Seed Failed: ${seed.keyword} - ${e.message}`, {
+                    stack: e.stack,
+                    name: e.name,
+                    code: e.code
+                });
                 return { status: 'rejected', seed, error: e.message };
             }
         });

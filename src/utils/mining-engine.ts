@@ -29,8 +29,11 @@ export async function processSeedKeyword(
     }
 
     if (!relatedList || relatedList.length === 0) {
+        console.log(`[MiningEngine] ⚠️ No related keywords found for "${seedKeyword}"`);
         return { processed: 0, saved: 0, items: [] };
     }
+
+    console.log(`[MiningEngine] 📥 Fetched ${relatedList.length} related keywords from API`);
 
     // 2. Map & Basic Parse
     const candidates = relatedList.map((item: any) => {
@@ -76,8 +79,20 @@ export async function processSeedKeyword(
     });
 
     // 3. Filter (Volume >= minSearchVolume & Blacklist)
-    let filtered = candidates.filter((c: any) => c.total_search_cnt >= minSearchVolume && !isBlacklisted(c.originalKeyword));
+    const beforeFilterCount = candidates.length;
+    const filteredByVolume = candidates.filter((c: any) => c.total_search_cnt >= minSearchVolume);
+    const filteredByBlacklist = filteredByVolume.filter((c: any) => !isBlacklisted(c.originalKeyword));
+    let filtered = filteredByBlacklist;
     filtered.sort((a: any, b: any) => b.total_search_cnt - a.total_search_cnt);
+    
+    console.log(`[MiningEngine] 🔍 Filtering results:`, {
+        totalCandidates: beforeFilterCount,
+        afterVolumeFilter: filteredByVolume.length,
+        afterBlacklistFilter: filtered.length,
+        minSearchVolume,
+        volumeFilteredOut: beforeFilterCount - filteredByVolume.length,
+        blacklistFilteredOut: filteredByVolume.length - filtered.length
+    });
 
     // 🚀 터보모드 최적화: Smart Deduplication 비활성화 (DB 읽기 최소화)
     // INSERT OR REPLACE가 이미 중복을 처리하므로 별도 SELECT 불필요
@@ -89,7 +104,7 @@ export async function processSeedKeyword(
         filtered = filtered.slice(0, maxKeywords);
     }
 
-    console.log(`[MiningEngine] Found ${relatedList.length} related, filtered to ${filtered.length} (min: ${minSearchVolume})`);
+    // 로그는 위에서 이미 출력됨
 
     let candidatesToProcess: any[] = [];
     let candidatesToSaveOnly: any[] = [];
