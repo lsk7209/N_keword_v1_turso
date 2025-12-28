@@ -35,8 +35,8 @@ export async function POST(req: NextRequest) {
                 // Limit to 30 to avoid timeout (Vercel 60s limit)
                 // 100 was too slow - each doc count takes ~500ms
                 // Limit to 30 items for full doc count check to avoid timeout
-                // Filter: Min Volume 1000, Max Items 300 (User Request)
-                const result = await processSeedKeyword(seed, 30, false, 1000, 300);
+                // Filter: Min Volume 100, Max Items 300 (User Request)
+                const result = await processSeedKeyword(seed, 30, false, 100, 300);
                 results.push({
                     seed,
                     success: true,

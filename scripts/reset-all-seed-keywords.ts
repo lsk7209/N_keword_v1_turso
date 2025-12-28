@@ -2,7 +2,7 @@
  * 모든 시드 키워드 상태를 리셋하는 스크립트
  * 
  * is_expanded = 1 (확장됨) 또는 is_expanded = 2 (실패) 상태를 모두 0으로 리셋
- * 검색량 >= 1000인 키워드만 리셋 (시드 키워드 조건)
+ * 검색량 >= 100인 키워드만 리셋 (시드 키워드 조건)
  */
 
 import dotenv from 'dotenv';
@@ -36,13 +36,13 @@ async function resetAllSeedKeywords() {
                     is_expanded,
                     COUNT(*) as count
                   FROM keywords 
-                  WHERE total_search_cnt >= 1000
+                  WHERE total_search_cnt >= 100
                   GROUP BY is_expanded
                   ORDER BY is_expanded`,
             args: []
         });
 
-        console.log('📊 현재 상태 (검색량 >= 1000):');
+        console.log('📊 현재 상태 (검색량 >= 100):');
         statusResult.rows.forEach(row => {
             const status = row.is_expanded as number;
             const count = row.count as number;
@@ -61,7 +61,7 @@ async function resetAllSeedKeywords() {
             sql: `SELECT COUNT(*) as count 
                   FROM keywords 
                   WHERE (is_expanded = 1 OR is_expanded = 2) 
-                  AND total_search_cnt >= 1000`,
+                  AND total_search_cnt >= 100`,
             args: []
         });
         const resetCount = (resetTargetResult.rows[0]?.count as number) || 0;
@@ -79,7 +79,7 @@ async function resetAllSeedKeywords() {
             sql: `UPDATE keywords 
                   SET is_expanded = 0 
                   WHERE (is_expanded = 1 OR is_expanded = 2) 
-                  AND total_search_cnt >= 1000`,
+                  AND total_search_cnt >= 100`,
             args: []
         });
 
@@ -91,14 +91,14 @@ async function resetAllSeedKeywords() {
                     is_expanded,
                     COUNT(*) as count
                   FROM keywords 
-                  WHERE total_search_cnt >= 1000
+                  WHERE total_search_cnt >= 100
                   GROUP BY is_expanded
                   ORDER BY is_expanded`,
             args: []
         });
 
         console.log('─'.repeat(100));
-        console.log('📊 리셋 후 상태 (검색량 >= 1000):');
+        console.log('📊 리셋 후 상태 (검색량 >= 100):');
         afterResult.rows.forEach(row => {
             const status = row.is_expanded as number;
             const count = row.count as number;
@@ -117,7 +117,7 @@ async function resetAllSeedKeywords() {
             sql: `SELECT COUNT(*) as count 
                   FROM keywords 
                   WHERE is_expanded = 0 
-                  AND total_search_cnt >= 1000`,
+                  AND total_search_cnt >= 100`,
             args: []
         });
         const availableCount = (availableResult.rows[0]?.count as number) || 0;
@@ -131,7 +131,7 @@ async function resetAllSeedKeywords() {
             sql: `SELECT keyword, total_search_cnt 
                   FROM keywords 
                   WHERE is_expanded = 0 
-                  AND total_search_cnt >= 1000
+                  AND total_search_cnt >= 100
                   ORDER BY total_search_cnt DESC 
                   LIMIT 20`,
             args: []

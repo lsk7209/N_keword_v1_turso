@@ -6,15 +6,15 @@
     },
     "crons": [
         {
-            "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=2000&expandConcurrency=130&minSearchVolume=1000&maxRunMs=58000",
+            "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=2000&expandConcurrency=130&minSearchVolume=100&maxRunMs=58000",
             "schedule": "*/3 * * * *"
         },
         {
-            "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=2000&expandConcurrency=130&minSearchVolume=1000&maxRunMs=58000",
+            "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=2000&expandConcurrency=130&minSearchVolume=100&maxRunMs=58000",
             "schedule": "1-59/3 * * * *"
         },
         {
-            "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=2000&expandConcurrency=130&minSearchVolume=1000&maxRunMs=58000",
+            "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=2000&expandConcurrency=130&minSearchVolume=100&maxRunMs=58000",
             "schedule": "2-59/3 * * * *"
         },
         {

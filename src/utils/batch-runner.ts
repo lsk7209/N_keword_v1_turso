@@ -133,8 +133,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const EXPAND_BATCH = clampInt(options.expandBatch, 1, isTurboMode ? 5000 : 1000, expandBatchBase);
     const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, isTurboMode ? 20000 : 5000, fillDocsBatchBase);
 
-    // 최소 검색량 1000 강제 (쿼리 파라미터로 0이 전달되어도 최소 1000 적용)
-    const MIN_SEARCH_VOLUME = Math.max(1000, clampInt(options.minSearchVolume, 0, 50_000, 1000));
+    // 최소 검색량 100 강제 (쿼리 파라미터로 0이 전달되어도 최소 100 적용)
+    const MIN_SEARCH_VOLUME = Math.max(100, clampInt(options.minSearchVolume, 0, 50_000, 100));
 
     console.log(`[Batch] Mode: ${isTurboMode ? 'TURBO' : 'NORMAL'}, Keys(S/A): ${searchKeyCount}/${adKeyCount}, Task: ${task}`);
     console.log(`[Batch] Config: Expand(Batch:${EXPAND_BATCH}, Conc:${EXPAND_CONCURRENCY}), FillDocs(Batch:${FILL_DOCS_BATCH}, Conc:${FILL_DOCS_CONCURRENCY}), MaxRunMs: ${maxRunMs}`);

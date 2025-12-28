@@ -13,7 +13,7 @@ export async function processSeedKeyword(
     seedKeyword: string,
     limitDocCount = 0,
     skipDocFetch = false,
-    minSearchVolume = 1000,  // 기본값 1000, 수동 수집 시 0으로 설정 가능
+    minSearchVolume = 100,  // 기본값 100, 수동 수집 시 0으로 설정 가능
     maxKeywords = 0          // 수집할 최대 키워드 수 (0 = 무제한)
 ): Promise<MiningResult> {
     const db = getTursoClient();
