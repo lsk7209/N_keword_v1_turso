@@ -4,8 +4,16 @@ import { useState, useEffect, useRef } from 'react';
 import { Loader2, ChevronDown } from 'lucide-react';
 
 // Fetcher function - page-based pagination
-const fetchKeywords = async ({ page = 1, limit = 100, sort = 'search_desc' }: { page: number; limit: number; sort: string }) => {
-    const res = await fetch(`/api/keywords?page=${page}&limit=${limit}&sort=${sort}`);
+const fetchKeywords = async ({ page = 1, limit = 100, sort = 'search_desc', minSearchVolume = null }: { page: number; limit: number; sort: string; minSearchVolume: number | null }) => {
+    const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        sort,
+    });
+    if (minSearchVolume !== null) {
+        params.append('minSearchVolume', String(minSearchVolume));
+    }
+    const res = await fetch(`/api/keywords?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch');
     return res.json();
 };
@@ -33,8 +41,10 @@ interface Keyword {
 
 export default function KeywordList({
     sort,
+    minSearchVolume = null,
 }: {
     sort: string;
+    minSearchVolume?: number | null;
 }) {
     const [keywords, setKeywords] = useState<Keyword[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
@@ -52,7 +62,7 @@ export default function KeywordList({
             setIsLoading(true);
             setError(null);
             try {
-                const result = await fetchKeywords({ page: 1, limit: pageSize, sort });
+                const result = await fetchKeywords({ page: 1, limit: pageSize, sort, minSearchVolume: minSearchVolume || null });
                 setKeywords(result.data || []);
                 setTotal(result.total || 0);
                 setHasMore(result.data && result.data.length === pageSize);
@@ -65,7 +75,7 @@ export default function KeywordList({
         };
 
         loadInitialData();
-    }, [sort]);
+    }, [sort, minSearchVolume]);
 
     // Load more function
     const loadMore = async () => {
@@ -74,7 +84,7 @@ export default function KeywordList({
         setIsLoadingMore(true);
         try {
             const nextPage = currentPage + 1;
-            const result = await fetchKeywords({ page: nextPage, limit: pageSize, sort });
+            const result = await fetchKeywords({ page: nextPage, limit: pageSize, sort, minSearchVolume: minSearchVolume || null });
             
             if (result.data && result.data.length > 0) {
                 setKeywords(prev => [...prev, ...result.data]);

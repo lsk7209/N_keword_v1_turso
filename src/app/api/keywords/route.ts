@@ -29,32 +29,42 @@ export async function GET(req: NextRequest) {
     const cursor = page > 0 ? (page - 1) * 100 : parseInt(searchParams.get('cursor') || '0');
     const limit = parseInt(searchParams.get('limit') || '100');
     const sort = searchParams.get('sort') || 'search_desc'; // search_desc, opp_desc, cafe_asc, blog_asc, web_asc, news_asc, tier_desc
-    // Filters could be added here
+    const minSearchVolumeParam = searchParams.get('minSearchVolume');
+    const minSearchVolume = minSearchVolumeParam ? parseInt(minSearchVolumeParam, 10) : null;
 
     const db = getTursoClient();
     // 문서수가 필요한 정렬: 등급순, 카페/블로그/웹/뉴스 적은순 (전체 조회 제외)
     const requiresDocs = ['tier_desc', 'tier_asc', 'cafe_asc', 'blog_asc', 'web_asc', 'news_asc'].includes(sort);
 
     // Build WHERE clause
-    let whereClause = '';
+    const whereConditions: string[] = [];
+    
+    // 문서수 필터 (정렬에 따라)
     if (requiresDocs) {
         if (sort === 'cafe_asc') {
             // 카페 적은순: 카페 문서수가 0이 아닌 것만 (NULL도 제외)
-            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND cafe_doc_cnt > 0';
+            whereConditions.push('total_doc_cnt IS NOT NULL AND cafe_doc_cnt > 0');
         } else if (sort === 'blog_asc') {
             // 블로그 적은순: 블로그 문서수가 0이 아닌 것만
-            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND blog_doc_cnt > 0';
+            whereConditions.push('total_doc_cnt IS NOT NULL AND blog_doc_cnt > 0');
         } else if (sort === 'web_asc') {
             // 웹 적은순: 웹 문서수가 0이 아닌 것만
-            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND web_doc_cnt > 0';
+            whereConditions.push('total_doc_cnt IS NOT NULL AND web_doc_cnt > 0');
         } else if (sort === 'news_asc') {
             // 뉴스 적은순: 뉴스 문서수가 0이 아닌 것만
-            whereClause = 'WHERE total_doc_cnt IS NOT NULL AND news_doc_cnt > 0';
+            whereConditions.push('total_doc_cnt IS NOT NULL AND news_doc_cnt > 0');
         } else {
             // 등급순: 문서수가 있는 것만 (total_doc_cnt IS NOT NULL)
-            whereClause = 'WHERE total_doc_cnt IS NOT NULL';
+            whereConditions.push('total_doc_cnt IS NOT NULL');
         }
     }
+    
+    // 총검색량 필터
+    if (minSearchVolume !== null && !isNaN(minSearchVolume) && minSearchVolume > 0) {
+        whereConditions.push(`total_search_cnt >= ${minSearchVolume}`);
+    }
+    
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     // Build ORDER BY clause
     let orderBy = '';
@@ -119,3 +129,4 @@ export async function GET(req: NextRequest) {
         total
     });
 }
+
