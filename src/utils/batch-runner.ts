@@ -111,5 +111,25 @@
         };
     };
 
-    // ... rest of the function ...
+    // Execute tasks based on configuration
+    let result: any = {};
+
+    if (task === 'expand' || task === 'all') {
+        const expandResult = await taskExpand();
+        if (expandResult) {
+            result.expand = expandResult;
+        }
+    }
+
+    if (task === 'fill_docs' || task === 'all') {
+        const fillResult = await taskFillDocs();
+        if (fillResult) {
+            result.fillDocs = fillResult;
+        }
+    }
+
+    const end = Date.now();
+    console.log(`[Batch] Completed in ${(end - start)}ms`);
+
+    return result;
 }
