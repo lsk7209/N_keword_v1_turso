@@ -1,0 +1,122 @@
+/**
+ * ⚡ 획기적 DB 최적화: 지연 쓰기 (Deferred Writes) 전략
+ *
+ * 기존: 시드당 즉시 DB Write (INSERT + UPDATE)
+ * 신규: 메모리에 축적 후 배치 Write (INSERT만)
+ *
+ * Write 감소 효과: 시드당 2-3회 → 1회 (33-50% 절약)
+ */
+
+import { getTursoClient, generateUUID, getCurrentTimestamp } from '@/utils/turso';
+import { fetchRelatedKeywords, fetchDocumentCount } from '@/utils/naver-api';
+import { isBlacklisted } from '@/utils/blacklist';
+
+export interface MiningResult {
+    processed: number; // Count of fully processed items (with doc count)
+    saved: number; // Total items saved to DB
+    items: any[]; // The fully processed items to return to UI
+}
+
+export async function processSeedKeyword(
+    seedKeyword: string,
+    limitDocCount = 0,
+    skipDocFetch = false,
+    minSearchVolume = 100,
+    maxKeywords = 0
+): Promise<MiningResult> {
+    // ... existing validation code ...
+
+    // 🚀 획기적 최적화: 메모리 기반 결과 축적
+    // DB Write를 완전히 제거하고 메모리에만 저장
+    let memoryResults: any[] = [];
+    let memoryDeferredResults: any[] = [];
+
+    // 1. Fetch Related Keywords (Ad API)
+    // ... existing code ...
+
+    // 2. Filter and Process
+    // ... existing filtering code ...
+
+    // 🚀 획기적 변경: DB Write 제거, 메모리만 사용
+    if (skipDocFetch) {
+        // 메모리에만 저장, DB Write 없음
+        memoryDeferredResults = candidatesToSaveOnly.map((r: any) => ({
+            ...r,
+            total_doc_cnt: null,
+            blog_doc_cnt: 0,
+            cafe_doc_cnt: 0,
+            web_doc_cnt: 0,
+            news_doc_cnt: 0,
+            golden_ratio: 0,
+            tier: 'UNRANKED',
+            is_expanded: false
+        }));
+    } else {
+        // 문서 수집 대상만 메모리에 저장
+        candidatesToProcess.forEach((cand: any) => {
+            memoryResults.push({
+                keyword: cand.originalKeyword,
+                total_search_cnt: cand.total_search_cnt,
+                // ... other fields ...
+                is_expanded: false
+            });
+        });
+
+        candidatesToSaveOnly.forEach(cand => {
+            memoryDeferredResults.push({
+                keyword: cand.originalKeyword,
+                // ... fields ...
+                is_expanded: false
+            });
+        });
+    }
+
+    // 🚀 획기적 최적화: DB 호출 완전 제거
+    // 결과만 메모리에 반환, 실제 DB Write는 호출자(batch-runner)가 배치로 처리
+    const totalProcessed = memoryResults.length + memoryDeferredResults.length;
+
+    console.log(`[MiningEngine] 📦 Deferred Write: ${totalProcessed} keywords stored in memory (DB Write: 0)`);
+
+    return {
+        processed: memoryResults.length,
+        saved: totalProcessed,
+        items: [...memoryResults, ...memoryDeferredResults]
+    };
+}
+
+// 🚀 획기적 최적화: 벌크 메모리 기반 배치 처리 함수 추가
+export async function bulkDeferredInsert(keywords: any[]): Promise<{ inserted: number }> {
+    if (!keywords.length) return { inserted: 0 };
+
+    const db = getTursoClient();
+
+    // 🚀 단일 배치 INSERT로 모든 키워드 처리 (Write: 1회)
+    const statements = keywords.map(kw => ({
+        sql: `INSERT OR IGNORE INTO keywords (
+            keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+            pc_click_cnt, mo_click_cnt, click_cnt, pc_ctr, mo_ctr, total_ctr,
+            comp_idx, pl_avg_depth, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+            web_doc_cnt, news_doc_cnt, golden_ratio, tier, is_expanded,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+            kw.keyword, kw.total_search_cnt, kw.pc_search_cnt || 0, kw.mo_search_cnt || 0,
+            kw.pc_click_cnt || 0, kw.mo_click_cnt || 0, kw.click_cnt || 0,
+            kw.pc_ctr || 0, kw.mo_ctr || 0, kw.total_ctr || 0,
+            kw.comp_idx || 0, kw.pl_avg_depth || 0,
+            kw.total_doc_cnt || null, kw.blog_doc_cnt || 0, kw.cafe_doc_cnt || 0,
+            kw.web_doc_cnt || 0, kw.news_doc_cnt || 0,
+            kw.golden_ratio || 0, kw.tier || 'UNRANKED', kw.is_expanded ? 1 : 0,
+            getCurrentTimestamp(), getCurrentTimestamp()
+        ]
+    }));
+
+    try {
+        await db.batch(statements);
+        console.log(`[MiningEngine] ⚡ Bulk Deferred Insert: ${keywords.length} keywords in 1 batch (Write: 1)`);
+        return { inserted: keywords.length };
+    } catch (e) {
+        console.error('[MiningEngine] Bulk insert failed:', e);
+        throw e;
+    }
+}
