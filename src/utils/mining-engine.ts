@@ -245,11 +245,13 @@ export async function processSeedKeyword(
         console.log(`[MiningEngine] 🔄 Starting batch insert for ${allRows.length} rows`);
         
         try {
-            // 🚀 실제로 새로 삽입된 키워드 수를 확인하기 위해 삽입 전 존재 여부 확인
-            // 배치 단위로 존재하는 키워드를 확인하여 DB 읽기 최소화
+            // 🚀 최적화: INSERT OR IGNORE가 이미 중복을 처리하므로 불필요한 SELECT/COUNT 쿼리 제거
+            // 이전: SELECT로 존재 확인 → COUNT로 삽입 전/후 비교 (3회 쿼리)
+            // 현재: INSERT OR IGNORE만 실행 (1회 쿼리, Write만 발생)
+            // Write 한도 절약: 배치당 2회 SELECT + 2회 COUNT = 4회 Read 제거
             const batchSize = 1000;
             const totalBatches = Math.ceil(allRows.length / batchSize);
-            let actualSaved = 0;
+            let attemptedSaved = 0;
             
             console.log(`[MiningEngine] 📦 Preparing ${totalBatches} batch(es) with batchSize=${batchSize}...`);
             
@@ -258,114 +260,66 @@ export async function processSeedKeyword(
                 const batch = allRows.slice(i, i + batchSize);
                 console.log(`[MiningEngine] 📦 Processing batch ${batchIndex}/${totalBatches} with ${batch.length} rows...`);
                 
-                // 배치 내 키워드 목록 추출
-                const keywords = batch.map(row => row.keyword);
-                
-                // 존재하는 키워드 확인 (배치 단위로 한 번만 쿼리)
-                const existingKeywordsResult = await db.execute({
-                    sql: `SELECT keyword FROM keywords WHERE keyword IN (${keywords.map(() => '?').join(',')})`,
-                    args: keywords
-                });
-                const existingKeywords = new Set(
-                    existingKeywordsResult.rows.map(row => row.keyword as string)
-                );
-                
-                // 새로 삽입할 키워드만 필터링
-                const newRows = batch.filter(row => !existingKeywords.has(row.keyword));
-                const skippedCount = batch.length - newRows.length;
-                
-                if (skippedCount > 0) {
-                    console.log(`[MiningEngine] ⏭️ Skipping ${skippedCount} existing keywords in batch ${batchIndex}`);
-                }
-                
-                if (newRows.length > 0) {
-                    try {
-                        const statements = newRows.map(row => {
-                            const isDeferred = row.total_doc_cnt === null;
-                            return {
-                                sql: `INSERT OR IGNORE INTO keywords (
-                                    id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                                    pc_click_cnt, mo_click_cnt, click_cnt,
-                                    pc_ctr, mo_ctr, total_ctr,
-                                    comp_idx, pl_avg_depth,
-                                    total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                                    web_doc_cnt, news_doc_cnt,
-                                    golden_ratio, tier, is_expanded,
-                                    created_at, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                                args: isDeferred
-                                    ? [
-                                        generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                                        row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                                        row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                                        row.comp_idx || null, row.pl_avg_depth || 0,
-                                        null, 0, 0, 0, 0,
-                                        0, row.tier, row.is_expanded ? 1 : 0,
-                                        now, now
-                                    ]
-                                    : [
-                                        generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
-                                        row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
-                                        row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
-                                        row.comp_idx || null, row.pl_avg_depth || 0,
-                                        row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
-                                        (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
-                                        row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
-                                        now, now
-                                    ]
-                            };
-                        });
-                        
-                        console.log(`[MiningEngine] 📦 Executing db.batch() with ${statements.length} new keywords...`);
-                        
-                        // 삽입 전 키워드 개수 확인
-                        const beforeCountResult = await db.execute({
-                            sql: `SELECT COUNT(*) as count FROM keywords WHERE keyword IN (${newRows.map(() => '?').join(',')})`,
-                            args: newRows.map(r => r.keyword)
-                        });
-                        const beforeCount = (beforeCountResult.rows[0]?.count as number) || 0;
-                        
-                        // 실제 삽입 실행
-                        await db.batch(statements);
-                        
-                        // 삽입 후 키워드 개수 확인 (실제 저장 여부 검증)
-                        const afterCountResult = await db.execute({
-                            sql: `SELECT COUNT(*) as count FROM keywords WHERE keyword IN (${newRows.map(() => '?').join(',')})`,
-                            args: newRows.map(r => r.keyword)
-                        });
-                        const afterCount = (afterCountResult.rows[0]?.count as number) || 0;
-                        const actuallyInserted = afterCount - beforeCount;
-                        
-                        actualSaved += actuallyInserted;
-                        console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} succeeded:`, {
-                            attempted: newRows.length,
-                            beforeCount,
-                            afterCount,
-                            actuallyInserted,
-                            totalSaved: actualSaved
-                        });
-                        
-                        if (actuallyInserted < newRows.length) {
-                            console.warn(`[MiningEngine] ⚠️ Warning: Only ${actuallyInserted} out of ${newRows.length} keywords were actually saved!`);
-                        }
-                    } catch (batchError: any) {
-                        console.error(`[MiningEngine] ❌ Batch ${batchIndex} insert error:`, {
-                            message: batchError.message,
-                            stack: batchError.stack,
-                            code: batchError.code,
-                            keywordsCount: newRows.length,
-                            sampleKeywords: newRows.slice(0, 3).map(r => r.keyword)
-                        });
-                        // 에러가 발생해도 다음 배치 계속 처리
-                        throw batchError;
-                    }
-                } else {
-                    console.log(`[MiningEngine] ⏭️ Batch ${batchIndex}/${totalBatches} skipped (all keywords already exist)`);
+                try {
+                    const statements = batch.map(row => {
+                        const isDeferred = row.total_doc_cnt === null;
+                        return {
+                            sql: `INSERT OR IGNORE INTO keywords (
+                                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                                pc_click_cnt, mo_click_cnt, click_cnt,
+                                pc_ctr, mo_ctr, total_ctr,
+                                comp_idx, pl_avg_depth,
+                                total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                                web_doc_cnt, news_doc_cnt,
+                                golden_ratio, tier, is_expanded,
+                                created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            args: isDeferred
+                                ? [
+                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                    row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                    row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                    row.comp_idx || null, row.pl_avg_depth || 0,
+                                    null, 0, 0, 0, 0,
+                                    0, row.tier, row.is_expanded ? 1 : 0,
+                                    now, now
+                                ]
+                                : [
+                                    generateUUID(), row.keyword, row.total_search_cnt, row.pc_search_cnt, row.mo_search_cnt,
+                                    row.pc_click_cnt || 0, row.mo_click_cnt || 0, row.click_cnt || 0,
+                                    row.pc_ctr || 0, row.mo_ctr || 0, row.total_ctr || 0,
+                                    row.comp_idx || null, row.pl_avg_depth || 0,
+                                    row.total_doc_cnt, (row as any).blog_doc_cnt || 0, (row as any).cafe_doc_cnt || 0,
+                                    (row as any).web_doc_cnt || 0, (row as any).news_doc_cnt || 0,
+                                    row.golden_ratio, row.tier, row.is_expanded ? 1 : 0,
+                                    now, now
+                                ]
+                        };
+                    });
+                    
+                    console.log(`[MiningEngine] 📦 Executing db.batch() with ${statements.length} keywords (INSERT OR IGNORE will skip duplicates automatically)...`);
+                    
+                    // 실제 삽입 실행 (INSERT OR IGNORE가 중복 자동 처리)
+                    await db.batch(statements);
+                    
+                    attemptedSaved += batch.length;
+                    console.log(`[MiningEngine] ✅ Batch ${batchIndex}/${totalBatches} completed: attempted=${batch.length} (duplicates automatically skipped by INSERT OR IGNORE)`);
+                } catch (batchError: any) {
+                    console.error(`[MiningEngine] ❌ Batch ${batchIndex} insert error:`, {
+                        message: batchError.message,
+                        stack: batchError.stack,
+                        code: batchError.code,
+                        keywordsCount: batch.length,
+                        sampleKeywords: batch.slice(0, 3).map((r: any) => r.keyword)
+                    });
+                    // 에러가 발생해도 다음 배치 계속 처리
+                    throw batchError;
                 }
             }
             
-            totalSaved = actualSaved;
-            console.log(`[MiningEngine] ✅ All batches completed successfully. totalSaved=${totalSaved} (${allRows.length - actualSaved} duplicates skipped)`);
+            // 실제 저장 수는 정확히 알 수 없지만, attempted 수를 반환 (INSERT OR IGNORE가 중복 자동 처리)
+            totalSaved = attemptedSaved;
+            console.log(`[MiningEngine] ✅ All batches completed successfully. attempted=${attemptedSaved} (actual saved may be less due to duplicates)`);
         } catch (e: any) {
             console.error(`[MiningEngine] ❌ DB Batch Error:`, {
                 message: e.message,

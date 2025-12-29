@@ -1,8 +1,10 @@
 name: Golden Keyword Miner Cron
 
 on:
-  schedule:
-    - cron: '*/5 * * * *' # Run every 5 minutes (GitHub 권장 최소 주기)
+  # 🚨 TURSO WRITE 한도 초과로 자동 수집 일시 중단
+  # 필요 시 수동으로 재활성화 (workflow_dispatch로 수동 실행 가능)
+  # schedule:
+  #   - cron: '*/10 * * * *' # Run every 10 minutes (빈도 감소)
   workflow_dispatch: # Allow manual trigger
 
 jobs:
