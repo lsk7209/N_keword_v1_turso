@@ -4,18 +4,7 @@
             "maxDuration": 60
         }
     },
-    "crons": [
-        // 🚨 TURSO WRITE 한도 초과로 자동 수집 일시 중단
-        // 필요 시 수동으로 재활성화
-        // {
-        //     "path": "/api/miner/execute?task=expand&mode=TURBO&expandBatch=500&expandConcurrency=50&minSearchVolume=100&maxRunMs=58000",
-        //     "schedule": "*/10 * * * *"
-        // },
-        // {
-        //     "path": "/api/miner/execute?task=fill_docs&mode=TURBO&fillBatch=1000&fillConcurrency=200&maxRunMs=58000",
-        //     "schedule": "*/10 * * * *"
-        // }
-    ],
+    "crons": []
     "headers": [
         {
             "source": "/(.*)",
