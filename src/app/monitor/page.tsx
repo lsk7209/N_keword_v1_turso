@@ -84,12 +84,12 @@ export default async function MonitorPage() {
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE created_at >= ?', [since24h]),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NOT NULL AND updated_at >= ?', [since24h]),
             db.execute('SELECT * FROM keywords ORDER BY created_at DESC LIMIT 10'),
-            // 시드키워드 현황 (검색량 1000 이상인 키워드)
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_search_cnt >= 1000'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 0 AND total_search_cnt >= 1000'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 1 AND total_search_cnt >= 1000'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 2 AND total_search_cnt >= 1000'),
-            db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 1000 ORDER BY total_search_cnt DESC LIMIT 20')
+            // 시드키워드 현황 (검색량 100 이상인 키워드 - 수집 기준과 동일)
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_search_cnt >= 100'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 0 AND total_search_cnt >= 100'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 1 AND total_search_cnt >= 100'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 2 AND total_search_cnt >= 100'),
+            db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 100 ORDER BY total_search_cnt DESC LIMIT 20')
         ]);
 
         total = (totalResult.rows[0]?.count as number) || 0;
@@ -107,7 +107,7 @@ export default async function MonitorPage() {
             created_at: row.created_at
         }));
         pendingDocs = Math.max(total - analyzed, 0);
-        
+
         // 시드키워드 현황
         seedKeywordsTotal = (seedTotalResult.rows[0]?.count as number) || 0;
         seedKeywordsPending = (seedPendingResult.rows[0]?.count as number) || 0;
@@ -280,9 +280,9 @@ export default async function MonitorPage() {
                 <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 border border-zinc-200 dark:border-zinc-800 shadow-sm">
                     <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
                         <Layers className="w-5 h-5 text-zinc-500" />
-                        시드키워드 현황 (검색량 1,000+)
+                        시드키워드 현황 (검색량 100+)
                     </h3>
-                    
+
                     {/* Seed Keywords Stats Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                         <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-lg">
@@ -310,10 +310,10 @@ export default async function MonitorPage() {
                             {recentSeeds && recentSeeds.length > 0 ? (
                                 recentSeeds.map((seed: any, idx: number) => {
                                     const statusText = seed.is_expanded === 0 ? '대기' : seed.is_expanded === 1 ? '완료' : '진행중';
-                                    const statusColor = seed.is_expanded === 0 ? 'text-amber-600 bg-amber-100 dark:bg-amber-900/30' 
+                                    const statusColor = seed.is_expanded === 0 ? 'text-amber-600 bg-amber-100 dark:bg-amber-900/30'
                                         : seed.is_expanded === 1 ? 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30'
-                                        : 'text-blue-600 bg-blue-100 dark:bg-blue-900/30';
-                                    
+                                            : 'text-blue-600 bg-blue-100 dark:bg-blue-900/30';
+
                                     return (
                                         <div key={idx} className="flex items-center justify-between p-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors border border-zinc-100 dark:border-zinc-800">
                                             <div className="flex items-center gap-3">
@@ -346,7 +346,7 @@ export default async function MonitorPage() {
                 <MiningControls />
 
             </div>
-            
+
             {/* Auto Refresh Component - refreshes page every 10 minutes */}
             <AutoRefresh interval={600000} />
         </div>

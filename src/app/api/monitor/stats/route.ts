@@ -19,9 +19,9 @@ export async function GET() {
         const qDocResult = await db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NULL');
         const qDoc = qDocResult.rows[0]?.count as number || 0;
 
-        // 3. Pending Expansion (Seeds) - High Volume Only
+        // 3. Pending Expansion (Seeds) - 검색량 100 이상 (수집 기준과 동일)
         const qSeedResult = await db.execute({
-            sql: 'SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 0 AND total_search_cnt >= 1000',
+            sql: 'SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 0 AND total_search_cnt >= 100',
             args: []
         });
         const qSeed = qSeedResult.rows[0]?.count as number || 0;
