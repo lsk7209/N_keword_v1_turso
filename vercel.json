@@ -4,7 +4,7 @@
             "maxDuration": 60
         }
     },
-    "crons": []
+    "crons": [],
     "headers": [
         {
             "source": "/(.*)",
