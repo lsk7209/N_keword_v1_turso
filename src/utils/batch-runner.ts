@@ -118,20 +118,20 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     // FILL_DOCS: 최대 1000까지 허용 (터보모드에서는 더 많은 동시 처리)
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, isTurboMode ? 1000 : 400, baseFillConcurrency);
 
-    // 🚀 터보모드: 배치 크기를 최대한 크게 설정 (API 키 최대 활용)
-    // EXPAND: 동시성의 15-20배 (터보모드에서는 더 많은 시드 처리)
+    // 🚀 Write 최적화: 배치 크기 대폭 감소로 Write 횟수 절감
+    // EXPAND: 동시성의 3-5배 (이전 20배에서 대폭 감소)
     const expandBatchBase = isTurboMode
-        ? Math.max(200, baseExpandConcurrency * 20)  // 터보: 20배, 최소 200 (12배 → 20배로 증가)
-        : Math.max(50, baseExpandConcurrency * 8);   // 일반: 8배, 최소 50
+        ? Math.max(50, baseExpandConcurrency * 5)   // 터보: 5배, 최소 50 (20배 → 5배로 감소, 75% 감소)
+        : Math.max(20, baseExpandConcurrency * 3);  // 일반: 3배, 최소 20
 
-    // FILL_DOCS: 동시성의 15-20배 (터보모드에서는 더 많은 키워드 처리)
+    // FILL_DOCS: 동시성의 3-5배 (이전 20배에서 대폭 감소)
     const fillDocsBatchBase = isTurboMode
-        ? Math.max(500, baseFillConcurrency * 20)  // 터보: 20배, 최소 500 (10배 → 20배로 증가)
-        : Math.max(100, baseFillConcurrency * 5);  // 일반: 5배, 최소 100
+        ? Math.max(100, baseFillConcurrency * 5)     // 터보: 5배, 최소 100 (20배 → 5배로 감소, 75% 감소)
+        : Math.max(50, baseFillConcurrency * 3);    // 일반: 3배, 최소 50
 
-    // 🚀 터보모드: 배치 크기 제한을 크게 확대 (API 키 최대 활용)
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, isTurboMode ? 5000 : 1000, expandBatchBase);
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, isTurboMode ? 20000 : 5000, fillDocsBatchBase);
+    // 🚀 Write 최적화: 배치 크기 제한 대폭 감소
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, isTurboMode ? 500 : 200, expandBatchBase);
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, isTurboMode ? 1000 : 500, fillDocsBatchBase);
 
     // 최소 검색량 100 강제 (쿼리 파라미터로 0이 전달되어도 최소 100 적용)
     const MIN_SEARCH_VOLUME = Math.max(100, clampInt(options.minSearchVolume, 0, 50_000, 100));
@@ -407,8 +407,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
                 // Turso/libsql의 db.batch()는 자동으로 트랜잭션을 시작하고 커밋합니다.
                 // 외부에서 BEGIN/COMMIT을 사용하면 충돌이 발생하여 "cannot commit - no transaction is active" 에러가 발생합니다.
 
-                // 🚀 터보모드: 배치 크기 대폭 증가 (200 → 1000)로 DB 호출 최소화
-                const batchSize = 1000; // DB 호출 횟수 80% 감소
+                // 🚀 Write 최적화: 배치 크기 감소로 Write 횟수 절감
+                const batchSize = 200; // 1000 → 200 (80% 감소)
 
                 for (let i = 0; i < updates.length; i += batchSize) {
                     const batch = updates.slice(i, i + batchSize);

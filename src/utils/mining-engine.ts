@@ -245,11 +245,11 @@ export async function processSeedKeyword(
         console.log(`[MiningEngine] 🔄 Starting batch insert for ${allRows.length} rows`);
         
         try {
-            // 🚀 최적화: INSERT OR IGNORE가 이미 중복을 처리하므로 불필요한 SELECT/COUNT 쿼리 제거
-            // 이전: SELECT로 존재 확인 → COUNT로 삽입 전/후 비교 (3회 쿼리)
-            // 현재: INSERT OR IGNORE만 실행 (1회 쿼리, Write만 발생)
-            // Write 한도 절약: 배치당 2회 SELECT + 2회 COUNT = 4회 Read 제거
-            const batchSize = 1000;
+            // 🚀 Write 최적화: 배치 크기 대폭 감소로 Write 횟수 절감
+            // INSERT OR IGNORE는 중복이어도 Write가 발생하므로 배치 크기를 줄여야 함
+            // 이전: 1000개 배치 → Write 1000회 (중복 포함)
+            // 현재: 200개 배치 → Write 200회 (80% 감소)
+            const batchSize = 200; // 1000 → 200 (80% 감소)
             const totalBatches = Math.ceil(allRows.length / batchSize);
             let attemptedSaved = 0;
             

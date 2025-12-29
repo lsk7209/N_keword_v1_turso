@@ -1,10 +1,8 @@
 name: Golden Keyword Miner Cron
 
 on:
-  # 🚨 TURSO WRITE 한도 초과로 자동 수집 일시 중단
-  # 필요 시 수동으로 재활성화 (workflow_dispatch로 수동 실행 가능)
-  # schedule:
-  #   - cron: '*/10 * * * *' # Run every 10 minutes (빈도 감소)
+  schedule:
+    - cron: '*/15 * * * *' # Run every 15 minutes (Write 최적화: 빈도 감소)
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -30,24 +28,22 @@ jobs:
           START_TIME=$(date +%s)
           echo "🚀 Starting mining batch at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
-          # 🚀 최대 수집량 최적화 (API 키 최대 활용):
-          # - GitHub schedule minimum is 5 minutes.
-          # - Inside each run, repeatedly call the miner API for ~4 minutes to maximize daily throughput.
-          # - Keep each API call within Vercel 60s by using controlled concurrency.
-          # Goal: 최대 키워드 수집량 달성
-          # calls/day ~= (RUN_FOR_SECONDS/INTERVAL_SECONDS) * 288
-          RUN_FOR_SECONDS=420  # 7분간 실행 (5분 주기에 맞춰 최대 활용)
-          INTERVAL_SECONDS=10  # 10초마다 호출 (15 → 10, 더 자주 호출)
+          # 🚀 Write 최적화: 배치 크기 및 빈도 대폭 감소
+          # - 배치 크기: 2000 → 300 (85% 감소)
+          # - 동시성: 130 → 50 (62% 감소)
+          # - 실행 시간: 7분 → 3분 (57% 감소)
+          # - 호출 간격: 10초 → 30초 (3배 증가)
+          # 예상 Write 감소: 약 90% 이상
+          RUN_FOR_SECONDS=180  # 3분간 실행 (7분 → 3분, 57% 감소)
+          INTERVAL_SECONDS=30  # 30초마다 호출 (10초 → 30초, 3배 증가)
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 🚀 획기적 최적화: API 키 최대 활용
-          # - expandBatch=2000 => ~2000 Ad API calls per miner execution (500 → 2000, 4배 증가)
-          # - expandConcurrency=130 => 13개 키 × 10 = 130 동시성 (65 → 130, 2배 증가)
+          # 🚀 Write 최적화: 보수적 설정
+          # - expandBatch=300 => 300 시드/실행 (2000 → 300, 85% 감소)
+          # - expandConcurrency=50 => 50 동시성 (130 → 50, 62% 감소)
           # - minSearchVolume=100 => 최소 검색량 100 이상만 수집
-          # Target: (300/10=30 calls/run) * 2000 * 288 = 17,280,000 Ad calls/day
-          # 예상 키워드 수집: 17,280,000 시드 × 20개 키워드/시드 = 345,600,000개/일 (이론상)
-          # 실제 안전: 약 5,000,000-10,000,000개/일 (대폭 증가)
-          QUERY="task=expand&mode=TURBO&expandBatch=2000&expandConcurrency=130&minSearchVolume=100&maxRunMs=58000"
+          # 예상 Write: (180/30=6 calls/run) * 300 * 96 = 172,800 writes/day (이전 대비 90% 감소)
+          QUERY="task=expand&mode=TURBO&expandBatch=300&expandConcurrency=50&minSearchVolume=100&maxRunMs=58000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
