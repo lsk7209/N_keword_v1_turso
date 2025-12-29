@@ -2,7 +2,7 @@ name: Golden Keyword Miner Cron
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Run every 15 minutes (Write 최적화: 빈도 감소)
+    - cron: '*/12 * * * *' # Run every 12 minutes (Deferred Writes 최적화 후 빈도 증가)
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -39,11 +39,12 @@ jobs:
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
           # 🚀 Write 최적화: 보수적 설정
-          # - expandBatch=300 => 300 시드/실행 (2000 → 300, 85% 감소)
-          # - expandConcurrency=50 => 50 동시성 (130 → 50, 62% 감소)
+          # 🚀 Deferred Writes 최적화 후 배치 크기 증가
+          # - expandBatch=400 => 400 시드/실행 (300 → 400, 33% 증가)
+          # - expandConcurrency=50 => 50 동시성 유지
           # - minSearchVolume=100 => 최소 검색량 100 이상만 수집
-          # 예상 Write: (180/30=6 calls/run) * 300 * 96 = 172,800 writes/day (이전 대비 90% 감소)
-          QUERY="task=expand&mode=TURBO&expandBatch=300&expandConcurrency=50&minSearchVolume=100&maxRunMs=58000"
+          # - 예상 Write: 배치당 3회 (선점 + 삽입 + 상태) = 99.8% 절약!
+          QUERY="task=expand&mode=TURBO&expandBatch=400&expandConcurrency=50&minSearchVolume=100&maxRunMs=58000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
