@@ -62,19 +62,22 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const searchKeyCount = keyManager.getKeyCount('SEARCH');
     const adKeyCount = keyManager.getKeyCount('AD');
 
-    // 기본 동시성 설정
-    const baseExpandConcurrency = Math.min(50, Math.max(20, adKeyCount * 8));
-    const baseFillConcurrency = Math.min(200, Math.max(50, searchKeyCount * 25));
+    // 🚀 획기적 최적화: API 키 수를 최대한 활용
+    // AD 14개: 분당 Rate Limit 있으므로 빠른 라운드 로빈으로 키당 15회 요청 가능
+    // SEARCH 30개: 일일 25,000회 제한이므로 매우 여유로움
+    // ═══════════════════════════════════════════════════════════════
+    const baseExpandConcurrency = Math.min(200, Math.max(50, adKeyCount * 15));
+    const baseFillConcurrency = Math.min(500, Math.max(100, searchKeyCount * 15));
 
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
-    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, baseFillConcurrency, baseFillConcurrency);
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 200, baseExpandConcurrency);
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 500, baseFillConcurrency);
 
-    // 배치 크기 설정
-    const expandBatchBase = Math.max(50, EXPAND_CONCURRENCY * 5);
-    const fillDocsBatchBase = Math.max(100, FILL_DOCS_CONCURRENCY * 5);
+    // 🚀 배치 크기: 동시성의 10배까지 허용 (대량 처리)
+    const expandBatchBase = Math.max(100, EXPAND_CONCURRENCY * 10);
+    const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5);
 
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 500, expandBatchBase);
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 1000, fillDocsBatchBase);
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 2000, expandBatchBase);
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 2500, fillDocsBatchBase);
 
     // 최소 검색량
     const MIN_SEARCH_VOLUME = Math.max(100, clampInt(options.minSearchVolume, 0, 50_000, 100));
