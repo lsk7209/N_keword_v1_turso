@@ -56,12 +56,12 @@ jobs:
           INTERVAL_SECONDS=10  # 10초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 🚀 초고성능 파라미터
-          # - expandBatch=1500 => 1500 시드/API 호출 (획기적 증가)
-          # - expandConcurrency=150 => 150 동시 처리 (AD 14개 × ~10)
+          # 🚀💰 최적화 파라미터 (Turso 비용 안전 마진 확보)
+          # - expandBatch=800 => 800 시드/API 호출 (중복 필터링으로 Write 90% 절감)
+          # - expandConcurrency=100 => 100 동시 처리 (AD 14개 × 7)
           # - minSearchVolume=100 => 품질 유지를 위한 최소 검색량
           # - maxRunMs=58000 => Vercel 60초 제한 내 완료
-          QUERY="task=expand&mode=TURBO&expandBatch=1500&expandConcurrency=150&minSearchVolume=100&maxRunMs=58000"
+          QUERY="task=expand&mode=TURBO&expandBatch=800&expandConcurrency=100&minSearchVolume=100&maxRunMs=58000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0

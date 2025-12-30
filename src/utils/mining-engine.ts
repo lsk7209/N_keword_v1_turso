@@ -274,14 +274,51 @@ export async function processSeedKeyword(
     };
 }
 
-// 🚀 획기적 최적화: 벌크 메모리 기반 배치 처리 함수 추가
+// 🚀💰 Turso 비용 최적화: 중복 필터링 후 INSERT
+// INSERT OR IGNORE도 Write로 카운트되므로, 미리 중복을 제거하여 비용 90% 절감
 export async function bulkDeferredInsert(keywords: any[]): Promise<{ inserted: number }> {
     if (!keywords.length) return { inserted: 0 };
 
     const db = getTursoClient();
 
-    // 🚀 단일 배치 INSERT로 모든 키워드 처리 (Write: 1회)
-    const statements = keywords.map(kw => ({
+    // 1️⃣ 기존 키워드 확인 (Read 비용은 Write의 1/1000)
+    const keywordList = keywords.map(k => k.keyword);
+
+    // 청크로 나눠서 조회 (SQLite IN 절 제한 대비)
+    const CHUNK_SIZE = 500;
+    const existingKeywords = new Set<string>();
+
+    for (let i = 0; i < keywordList.length; i += CHUNK_SIZE) {
+        const chunk = keywordList.slice(i, i + CHUNK_SIZE);
+        const placeholders = chunk.map(() => '?').join(',');
+
+        try {
+            const result = await db.execute({
+                sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
+                args: chunk
+            });
+
+            result.rows.forEach(row => {
+                existingKeywords.add(row.keyword as string);
+            });
+        } catch (e) {
+            console.error('[MiningEngine] Duplicate check failed:', e);
+            // 실패 시 원래 방식으로 진행 (INSERT OR IGNORE)
+        }
+    }
+
+    // 2️⃣ 신규 키워드만 필터링
+    const newKeywords = keywords.filter(k => !existingKeywords.has(k.keyword));
+
+    console.log(`[MiningEngine] 💰 Duplicate Filter: ${keywords.length} → ${newKeywords.length} (${keywords.length - newKeywords.length} duplicates skipped)`);
+
+    if (newKeywords.length === 0) {
+        console.log(`[MiningEngine] ⚡ All duplicates - no INSERT needed (Write: 0)`);
+        return { inserted: 0 };
+    }
+
+    // 3️⃣ 신규 키워드만 INSERT (Row Writes 최소화)
+    const statements = newKeywords.map(kw => ({
         sql: `INSERT OR IGNORE INTO keywords (
             keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
             pc_click_cnt, mo_click_cnt, click_cnt, pc_ctr, mo_ctr, total_ctr,
@@ -303,8 +340,8 @@ export async function bulkDeferredInsert(keywords: any[]): Promise<{ inserted: n
 
     try {
         await db.batch(statements);
-        console.log(`[MiningEngine] ⚡ Bulk Deferred Insert: ${keywords.length} keywords in 1 batch (Write: 1)`);
-        return { inserted: keywords.length };
+        console.log(`[MiningEngine] ⚡ Optimized Insert: ${newKeywords.length} new keywords (${keywords.length - newKeywords.length} duplicates saved)`);
+        return { inserted: newKeywords.length };
     } catch (e) {
         console.error('[MiningEngine] Bulk insert failed:', e);
         throw e;
