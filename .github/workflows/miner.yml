@@ -52,16 +52,16 @@ jobs:
           # - 중복 제거 후 실제 신규: 15만~25만개/일 예상
           # ═══════════════════════════════════════════════════════════════════════
           
-          RUN_FOR_SECONDS=240  # 4분간 루프 실행 (5분 크론 주기 - 1분 여유)
-          INTERVAL_SECONDS=10  # 10초마다 API 호출
+          RUN_FOR_SECONDS=240  # 4분간 루프 실행 (Write 제한에 맞춤)
+          INTERVAL_SECONDS=20  # 20초마다 API 호출 (Write 제한에 맞춤)
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 🚀💰 최적화 파라미터 (Turso 비용 안전 마진 확보)
-          # - expandBatch=800 => 800 시드/API 호출 (중복 필터링으로 Write 90% 절감)
-          # - expandConcurrency=100 => 100 동시 처리 (AD 14개 × 7)
-          # - minSearchVolume=100 => 품질 유지를 위한 최소 검색량
-          # - maxRunMs=58000 => Vercel 60초 제한 내 완료
-          QUERY="task=expand&mode=TURBO&expandBatch=800&expandConcurrency=100&minSearchVolume=100&maxRunMs=58000"
+          # 🚀💰 최적화 파라미터 (Turso Write 제한 준수)
+          # - expandBatch=200 => 200 시드/실행 (Write 제한 안전)
+          # - expandConcurrency=30 => 30 동시성 (Write 제한 안전)
+          # - minSearchVolume=100 => 최소 검색량 100 이상만 수집
+          # - Turso 무료 티어: 25M Write/월, 833K Write/일 제한
+          QUERY="task=expand&mode=TURBO&expandBatch=200&expandConcurrency=30&minSearchVolume=100&maxRunMs=58000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
