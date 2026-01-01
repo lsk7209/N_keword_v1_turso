@@ -60,10 +60,11 @@ jobs:
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
           # 🚀💰 최적화 파라미터 (Turso 비용 안전 마진 확보)
-          # - fillBatch=300 => 300개 키워드/API 호출 (500 → 300, 비용 절감)
-          # - fillConcurrency=80 => 80개 동시 처리 (30개 키 × 2.6)
-          # - maxRunMs=55000 => Vercel 60초 제한 내 완료
-          QUERY="task=fill_docs&fillBatch=300&fillConcurrency=80&maxRunMs=55000"
+          # 🚀 공격적 수집 파라미터
+          # - fillBatch=800 => 800 키워드/실행 (증가)
+          # - fillConcurrency=150 => 150 동시성 (증가)
+          # - maxRunMs=55000 => Vercel 60초 제한 고려
+          QUERY="task=fill_docs&fillBatch=800&fillConcurrency=150&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
