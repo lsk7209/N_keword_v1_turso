@@ -114,42 +114,59 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 async function runExpandTask(batchSize: number, concurrency: number, minSearchVolume: number, deadline: number) {
     const db = getTursoClient();
 
-    // 시드 선점
+    // 시드 선점 (2단계: SELECT → UPDATE)
     let seedsData: any[] = [];
     try {
-        const claimResult = await db.execute({
-            sql: `UPDATE keywords
-                  SET is_expanded = 2, updated_at = ?
-                  WHERE id IN (
-                      SELECT id FROM keywords
-                      WHERE (is_expanded = 0)
-                         OR (is_expanded = 2)
-                         OR (is_expanded = 1 AND updated_at < datetime('now', '-7 days'))
-                      ORDER BY
-                          CASE
-                              WHEN is_expanded = 0 THEN 0
-                              WHEN is_expanded = 2 THEN 1
-                              WHEN is_expanded = 1 AND updated_at < datetime('now', '-7 days') THEN 2
-                          END,
-                          total_search_cnt DESC
-                      LIMIT ?
-                  )
-                  RETURNING id, keyword, total_search_cnt`,
-            args: [getCurrentTimestamp(), batchSize]
+        // 1단계: 시드 조회
+        const selectResult = await db.execute({
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords
+                  WHERE (is_expanded = 0)
+                     OR (is_expanded = 2)
+                     OR (is_expanded = 1 AND updated_at < datetime('now', '-7 days'))
+                  ORDER BY
+                      CASE
+                          WHEN is_expanded = 0 THEN 0
+                          WHEN is_expanded = 2 THEN 1
+                          WHEN is_expanded = 1 AND updated_at < datetime('now', '-7 days') THEN 2
+                      END,
+                      total_search_cnt DESC
+                  LIMIT ?`,
+            args: [batchSize]
         });
 
-        seedsData = claimResult.rows.map(row => ({
+        seedsData = selectResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
-    } catch (e: any) {
-        console.error('[Batch] Expand Claim Failed:', e);
+
+        console.log(`[Expand] Selected ${seedsData.length} seeds (batch: ${batchSize})`);
+
+        // 2단계: 선택된 시드 상태 업데이트
+        if (seedsData.length > 0) {
+            const ids = seedsData.map(s => s.id);
+            const placeholders = ids.map(() => '?').join(',');
+            await db.execute({
+                sql: `UPDATE keywords 
+                      SET is_expanded = 2, updated_at = ? 
+                      WHERE id IN (${placeholders})`,
+                args: [getCurrentTimestamp(), ...ids]
+            });
+            console.log(`[Expand] Claimed ${seedsData.length} seeds`);
+        }
+    } catch (err: any) {
+        console.error('[Expand] Failed to claim seeds:', err.message);
         return null;
     }
 
-    if (!seedsData || seedsData.length === 0) return null;
-
+    if (seedsData.length === 0) {
+        console.log('[Expand] No seeds available for expansion');
+        return {
+            processedSeeds: 0,
+            totalSaved: 0,
+            details: []
+        };
+    }
     console.log(`[Batch] EXPAND: Claimed ${seedsData.length} seeds (Concurrency ${concurrency})`);
 
     // 메모리 기반 결과 축적
@@ -233,33 +250,50 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
 async function runFillDocsTask(batchSize: number, concurrency: number, deadline: number) {
     const db = getTursoClient();
 
-    // 대상 선점
+    // 대상 선점 (2단계: SELECT → UPDATE)
     let docsToFill: any[] = [];
     try {
-        const claimResult = await db.execute({
-            sql: `UPDATE keywords
-                  SET total_doc_cnt = -2
-                  WHERE id IN (
-                      SELECT id FROM keywords
-                      WHERE total_doc_cnt IS NULL
-                      ORDER BY total_search_cnt DESC
-                      LIMIT ?
-                  )
-                  RETURNING id, keyword, total_search_cnt`,
+        // 1단계: 대상 조회
+        const selectResult = await db.execute({
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords
+                  WHERE total_doc_cnt IS NULL
+                  ORDER BY total_search_cnt DESC
+                  LIMIT ?`,
             args: [batchSize]
         });
 
-        docsToFill = claimResult.rows.map(row => ({
+        docsToFill = selectResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
-    } catch (e: any) {
-        console.error('[Batch] FillDocs Claim Failed:', e);
+
+        console.log(`[FillDocs] Selected ${docsToFill.length} keywords (batch: ${batchSize})`);
+
+        // 2단계: 선택된 키워드 상태 업데이트
+        if (docsToFill.length > 0) {
+            const ids = docsToFill.map(d => d.id);
+            const placeholders = ids.map(() => '?').join(',');
+            await db.execute({
+                sql: `UPDATE keywords 
+                      SET total_doc_cnt = -2 
+                      WHERE id IN (${placeholders})`,
+                args: ids
+            });
+            console.log(`[FillDocs] Claimed ${docsToFill.length} keywords`);
+        }
+    } catch (err: any) {
+        console.error('[FillDocs] Failed to claim keywords:', err.message);
         return null;
     }
 
-    if (!docsToFill || docsToFill.length === 0) return null;
+    if (docsToFill.length === 0) {
+        console.log('[FillDocs] No keywords need document count');
+        return {
+            processed: 0,
+            errors: []
+        };
+    }
 
     console.log(`[Batch] FILL_DOCS: Claimed ${docsToFill.length} items (Concurrency ${concurrency})`);
 
