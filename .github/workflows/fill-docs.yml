@@ -59,11 +59,12 @@ jobs:
           INTERVAL_SECONDS=10  # 10초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 🚀 최종 최적화 파라미터 (Search API 키 30개 최대 활용)
-          # - fillBatch=2000 => 2000 키워드/실행 (1.3배 증가)
-          # - fillConcurrency=300 => 300 동시성 (SEARCH 30개 × 10배)
+          # 🚀 안정적이고 검증된 파라미터 (Vercel 타임아웃 방지)
+          # - fillBatch=500 => 500 키워드/실행 (안정성 검증됨)
+          # - fillConcurrency=100 => 100 동시성 (SEARCH 30개 × 3-4배)
           # - maxRunMs=55000 => Vercel 60초 제한 고려
-          QUERY="task=fill_docs&fillBatch=2000&fillConcurrency=300&maxRunMs=55000"
+          # 타임아웃 없이 안정적으로 처리 가능한 검증된 값
+          QUERY="task=fill_docs&fillBatch=500&fillConcurrency=100&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
