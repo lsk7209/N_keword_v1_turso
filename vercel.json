@@ -6,11 +6,11 @@
     },
     "crons": [
         {
-            "path": "/api/miner/execute?task=expand&expandBatch=500&expandConcurrency=100&minSearchVolume=50&maxRunMs=58000",
+            "path": "/api/miner/execute?task=expand&expandBatch=1000&expandConcurrency=150&minSearchVolume=10&maxRunMs=58000",
             "schedule": "*/5 * * * *"
         },
         {
-            "path": "/api/miner/execute?task=fill_docs&fillBatch=1500&fillConcurrency=200&maxRunMs=55000",
+            "path": "/api/miner/execute?task=fill_docs&fillBatch=2000&fillConcurrency=300&maxRunMs=55000",
             "schedule": "2-59/5 * * * *"
         }
     ],
