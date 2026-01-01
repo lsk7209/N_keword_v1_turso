@@ -3,15 +3,24 @@
  */
 
 import { createClient } from '@libsql/client';
+import dotenv from 'dotenv';
+import { resolve } from 'path';
+
+// .env.local 파일 로드
+dotenv.config({ path: resolve(process.cwd(), '.env.local') });
 
 // 환경 변수에서 가져오기
-const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL || 'libsql://nkeword-igeonu377.aws-ap-northeast-1.turso.io';
-const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpUVCJ9.eyJhIjoicnciLCJpYXQiOjE3NjY3NDkyMTEsImlkIjoiOTdmODdhYTQtY2E1MS00NWNhLWJhZWItYzBhMjQ3Y2JhZWM5IiwicmlkIjoiYzllZWNhMWMtMmM3MS00ZjA2LTk4M2QtYzBkYTM2NmM2ZjcxIn0.1iNmefqRXrlCGqyRQ8qT7HoT7jhJ7A2fzwmd0OhvDRrCVXpaI1rmj6u9vhhwLS0JmRg1rvd55rDmM1NC_7q4Cg';
+const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL;
+const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN;
 
 async function testConnection() {
+    if (!TURSO_DATABASE_URL || !TURSO_AUTH_TOKEN) {
+        console.error('❌ 환경 변수(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)가 설정되지 않았습니다.');
+        process.exit(1);
+    }
     console.log('🔍 Turso 데이터베이스 연결 테스트 시작...\n');
     console.log(`📡 URL: ${TURSO_DATABASE_URL}`);
-    console.log(`🔑 Token: ${TURSO_AUTH_TOKEN.substring(0, 20)}...\n`);
+    console.log(`🔑 Token: ${TURSO_AUTH_TOKEN.substring(0, 10)}... (Length: ${TURSO_AUTH_TOKEN.length})\n`);
 
     try {
         const client = createClient({

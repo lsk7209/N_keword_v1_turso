@@ -204,7 +204,7 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     if (failIds.length > 0) {
         const placeholders = failIds.map(() => '?').join(',');
         await db.execute({
-            sql: `UPDATE keywords SET is_expanded = 1 WHERE id IN (${placeholders})`,
+            sql: `UPDATE keywords SET is_expanded = 0 WHERE id IN (${placeholders})`,
             args: failIds
         });
     }
