@@ -10,7 +10,7 @@
             "schedule": "*/5 * * * *"
         },
         {
-            "path": "/api/miner/execute?task=fill_docs&fillBatch=800&fillConcurrency=150&maxRunMs=55000",
+            "path": "/api/miner/execute?task=fill_docs&fillBatch=100&fillConcurrency=30&maxRunMs=55000",
             "schedule": "2-59/5 * * * *"
         }
     ],
