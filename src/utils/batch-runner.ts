@@ -96,15 +96,39 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const tasks: Promise<void>[] = [];
 
     if (task === 'expand' || task === 'all') {
-        tasks.push(runExpandTask(EXPAND_BATCH, EXPAND_CONCURRENCY, MIN_SEARCH_VOLUME, deadline).then(res => {
-            if (res) result.expand = res;
-        }));
+        tasks.push(
+            runExpandTask(EXPAND_BATCH, EXPAND_CONCURRENCY, MIN_SEARCH_VOLUME, deadline)
+                .then(res => {
+                    if (res) {
+                        result.expand = res;
+                        console.log(`[Batch] ✅ Expand completed: ${res.processedSeeds} seeds, ${res.totalSaved} saved`);
+                    } else {
+                        console.warn('[Batch] ⚠️ Expand returned null');
+                    }
+                })
+                .catch(err => {
+                    console.error('[Batch] ❌ Expand task failed:', err);
+                    result.expand = { processedSeeds: 0, totalSaved: 0, details: [], error: err.message };
+                })
+        );
     }
 
     if (task === 'fill_docs' || task === 'all') {
-        tasks.push(runFillDocsTask(FILL_DOCS_BATCH, FILL_DOCS_CONCURRENCY, deadline).then(res => {
-            if (res) result.fillDocs = res;
-        }));
+        tasks.push(
+            runFillDocsTask(FILL_DOCS_BATCH, FILL_DOCS_CONCURRENCY, deadline)
+                .then(res => {
+                    if (res) {
+                        result.fillDocs = res;
+                        console.log(`[Batch] ✅ FillDocs completed: ${res.processed} processed`);
+                    } else {
+                        console.warn('[Batch] ⚠️ FillDocs returned null');
+                    }
+                })
+                .catch(err => {
+                    console.error('[Batch] ❌ FillDocs task failed:', err);
+                    result.fillDocs = { processed: 0, failed: 0, skipped: 0, details: [], error: err.message };
+                })
+        );
     }
 
     await Promise.all(tasks);
