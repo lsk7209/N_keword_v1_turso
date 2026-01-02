@@ -8,10 +8,19 @@ export async function triggerMining() {
     try {
         console.log('[Args] Triggering mining batch manually...');
         const result = await runMiningBatch();
-        return result;
+
+        // runMiningBatch returns the actual result object (expand, fillDocs, etc.)
+        // We need to wrap it with success flag for the UI
+        return {
+            success: true,
+            ...result
+        };
     } catch (e: any) {
         console.error('Manual Trigger Error:', e);
-        return { success: false, error: e.message };
+        return {
+            success: false,
+            error: e.message || 'Mining batch failed with unknown error'
+        };
     }
 }
 
