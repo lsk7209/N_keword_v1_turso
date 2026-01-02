@@ -172,27 +172,36 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     let seedsData: SeedItem[] = [];
     try {
-        const claimResult = await db.execute({
-            sql: `UPDATE keywords 
-                  SET is_expanded = 2, updated_at = ?
-                  WHERE id IN (
-                      SELECT id FROM keywords
-                      WHERE (is_expanded = 0)
-                         OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours'))
-                      ORDER BY total_search_cnt DESC
-                      LIMIT ?
-                  )
-                  RETURNING id, keyword, total_search_cnt`,
-            args: [getCurrentTimestamp(), Math.min(batchSize, 100)]
+        // 🔄 ROLLBACK & FIX: UPDATE...RETURNING 이슈 해결을 위해 표준 패턴으로 복귀
+        // 1. SELECT (Read Cost: Low - LIMIT 100)
+        const selectResult = await db.execute({
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords
+                  WHERE (is_expanded = 0)
+                     OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours'))
+                  ORDER BY total_search_cnt DESC
+                  LIMIT ?`,
+            args: [Math.min(batchSize, 100)]
         });
 
-        seedsData = claimResult.rows.map(row => ({
+        seedsData = selectResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        console.log(`[Expand] 🎯 Zero-Read Claim: ${seedsData.length} seeds claimed via UPDATE...RETURNING`);
+        // 2. UPDATE (Write)
+        if (seedsData.length > 0) {
+            const ids = seedsData.map(s => s.id);
+            const placeholders = ids.map(() => '?').join(',');
+
+            await db.execute({
+                sql: `UPDATE keywords SET is_expanded = 2, updated_at = ? WHERE id IN (${placeholders})`,
+                args: [getCurrentTimestamp(), ...ids]
+            });
+            console.log(`[Expand] 🔄 Standard Claim: ${seedsData.length} seeds locked`);
+        } else {
+            console.log(`[Expand] No seeds found to claim`);
+        }
     } catch (err: any) {
         console.error('[Expand] Failed to claim seeds:', err.message);
         return null;
@@ -298,27 +307,35 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     let docsToFill: SeedItem[] = [];
     try {
-        const claimResult = await db.execute({
-            sql: `UPDATE keywords 
-                  SET total_doc_cnt = -2, updated_at = ?
-                  WHERE id IN (
-                      SELECT id FROM keywords
-                      WHERE (total_doc_cnt IS NULL)
-                         OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours'))
-                      ORDER BY total_search_cnt DESC
-                      LIMIT ?
-                  )
-                  RETURNING id, keyword, total_search_cnt`,
-            args: [getCurrentTimestamp(), Math.min(batchSize, 200)]
+        // 🔄 ROLLBACK & FIX: Standard Claim Pattern
+        // 1. SELECT (Read Cost: Low - LIMIT 200)
+        const selectResult = await db.execute({
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords
+                  WHERE (total_doc_cnt IS NULL)
+                     OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours'))
+                  ORDER BY total_search_cnt DESC
+                  LIMIT ?`,
+            args: [Math.min(batchSize, 200)]
         });
 
-        docsToFill = claimResult.rows.map(row => ({
+        docsToFill = selectResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        console.log(`[FillDocs] 🎯 Zero-Read Claim: ${docsToFill.length} keywords claimed via UPDATE...RETURNING`);
+        // 2. UPDATE (Write)
+        if (docsToFill.length > 0) {
+            const ids = docsToFill.map(d => d.id);
+            const placeholders = ids.map(() => '?').join(',');
+            await db.execute({
+                sql: `UPDATE keywords SET total_doc_cnt = -2, updated_at = ? WHERE id IN (${placeholders})`,
+                args: [getCurrentTimestamp(), ...ids]
+            });
+            console.log(`[FillDocs] 🔄 Standard Claim: ${docsToFill.length} keywords locked`);
+        } else {
+            console.log(`[FillDocs] No keywords found to fill`);
+        }
     } catch (err: any) {
         console.error('[FillDocs] Failed to claim keywords:', err.message);
         return null;
