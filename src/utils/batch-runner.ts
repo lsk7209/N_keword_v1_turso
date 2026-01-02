@@ -1,5 +1,5 @@
 import { getTursoClient, getCurrentTimestamp } from '@/utils/turso';
-import { processSeedKeyword, bulkDeferredInsert } from '@/utils/mining-engine';
+import { processSeedKeyword, bulkDeferredInsert, Keyword } from '@/utils/mining-engine';
 import { fetchDocumentCount } from '@/utils/naver-api';
 import { keyManager } from '@/utils/key-manager';
 
@@ -46,12 +46,32 @@ async function mapWithConcurrency<T, R>(
     return results;
 }
 
-export async function runMiningBatch(options: MiningBatchOptions = {}) {
+export interface ExpandResult {
+    processedSeeds: number;
+    totalSaved: number;
+    details: string[];
+    error?: string;
+}
+
+export interface FillDocsResult {
+    processed: number;
+    failed: number;
+    skipped: number;
+    details: string[];
+    error?: string;
+}
+
+export interface MiningBatchResult {
+    expand?: ExpandResult;
+    fillDocs?: FillDocsResult;
+}
+
+export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<MiningBatchResult> {
     const db = getTursoClient();
 
     // 타임스탬프 로깅
     const start = Date.now();
-    console.log('[Batch] Starting Parallel Mining Batch...');
+    console.log('[BatchRunner] 🚀 Starting Parallel Mining Batch...');
 
     // 기본 설정
     let mode: MiningMode = 'TURBO';
@@ -67,32 +87,26 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     const adKeyCount = keyManager.getKeyCount('AD');
 
     // 🚀 획기적 최적화: API 키 수를 최대한 활용
-    // AD 14개: 분당 Rate Limit 있으므로 빠른 라운드 로빈으로 키당 15회 요청 가능
-    // SEARCH 30개: 일일 25,000회 제한이므로 매우 여유로움
-    // ═══════════════════════════════════════════════════════════════
-    const baseExpandConcurrency = Math.min(100, Math.max(20, adKeyCount * 5)); // Higher concurrency often leads to 429s on AD API
+    const baseExpandConcurrency = Math.min(100, Math.max(20, adKeyCount * 5));
     const baseFillConcurrency = Math.min(500, Math.max(100, searchKeyCount * 15));
 
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 200, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 500, baseFillConcurrency);
 
-    // 🚀 배치 크기: 동시성의 10배까지 허용 (대량 처리)
     const expandBatchBase = Math.max(100, EXPAND_CONCURRENCY * 10);
     const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5);
 
     const EXPAND_BATCH = clampInt(options.expandBatch, 1, 2000, expandBatchBase);
     const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 2500, fillDocsBatchBase);
 
-    // 최소 검색량
     const MIN_SEARCH_VOLUME = Math.max(100, clampInt(options.minSearchVolume, 0, 50_000, 100));
 
-    console.log(`[Batch] Mode: ${mode}, Keys(S/A): ${searchKeyCount}/${adKeyCount}, Task: ${task}`);
-    console.log(`[Batch] Config: Expand(Batch:${EXPAND_BATCH}, Conc:${EXPAND_CONCURRENCY}), FillDocs(Batch:${FILL_DOCS_BATCH}, Conc:${FILL_DOCS_CONCURRENCY}), MaxRunMs: ${maxRunMs}`);
+    console.log(`[BatchRunner] Mode: ${mode}, Keys(S/A): ${searchKeyCount}/${adKeyCount}, Task: ${task}`);
+    console.log(`[BatchRunner] Config: Expand(Batch:${EXPAND_BATCH}, Conc:${EXPAND_CONCURRENCY}), FillDocs(Batch:${FILL_DOCS_BATCH}, Conc:${FILL_DOCS_CONCURRENCY}), MaxRunMs: ${maxRunMs}`);
 
     // 결과 객체
-    let result: any = {};
+    let result: MiningBatchResult = {};
 
-    // 🚀 Volume Optimization: Run Expand and FillDocs in Parallel
     const tasks: Promise<void>[] = [];
 
     if (task === 'expand' || task === 'all') {
@@ -101,13 +115,13 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
                 .then(res => {
                     if (res) {
                         result.expand = res;
-                        console.log(`[Batch] ✅ Expand completed: ${res.processedSeeds} seeds, ${res.totalSaved} saved`);
+                        console.log(`[BatchRunner] ✅ Expand task finished: ${res.processedSeeds} processed, ${res.totalSaved} saved`);
                     } else {
-                        console.warn('[Batch] ⚠️ Expand returned null');
+                        console.warn('[BatchRunner] ⚠️ Expand task returned null');
                     }
                 })
                 .catch(err => {
-                    console.error('[Batch] ❌ Expand task failed:', err);
+                    console.error('[BatchRunner] ❌ Expand task fatal error:', err);
                     result.expand = { processedSeeds: 0, totalSaved: 0, details: [], error: err.message };
                 })
         );
@@ -119,13 +133,13 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
                 .then(res => {
                     if (res) {
                         result.fillDocs = res;
-                        console.log(`[Batch] ✅ FillDocs completed: ${res.processed} processed`);
+                        console.log(`[BatchRunner] ✅ FillDocs task finished: ${res.processed} items updated`);
                     } else {
-                        console.warn('[Batch] ⚠️ FillDocs returned null');
+                        console.warn('[BatchRunner] ⚠️ FillDocs task returned null');
                     }
                 })
                 .catch(err => {
-                    console.error('[Batch] ❌ FillDocs task failed:', err);
+                    console.error('[BatchRunner] ❌ FillDocs task fatal error:', err);
                     result.fillDocs = { processed: 0, failed: 0, skipped: 0, details: [], error: err.message };
                 })
         );
@@ -134,17 +148,23 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     await Promise.all(tasks);
 
     const end = Date.now();
-    console.log(`[Batch] Completed in ${(end - start)}ms`);
+    console.log(`[BatchRunner] 🏁 Parallel Batch Completed in ${(end - start)}ms`);
 
     return result;
 }
 
+interface SeedItem {
+    id: string;
+    keyword: string;
+    total_search_cnt: number;
+}
+
 // Expand 작업 함수
-async function runExpandTask(batchSize: number, concurrency: number, minSearchVolume: number, deadline: number) {
+async function runExpandTask(batchSize: number, concurrency: number, minSearchVolume: number, deadline: number): Promise<ExpandResult | null> {
     const db = getTursoClient();
 
     // 🚀 Read/Write Optimization: Use batch for atomic claim
-    let seedsData: any[] = [];
+    let seedsData: SeedItem[] = [];
     try {
         const selectResult = await db.execute({
             sql: `SELECT id, keyword, total_search_cnt FROM keywords
@@ -196,7 +216,7 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     console.log(`[Batch] EXPAND: Claimed ${seedsData.length} seeds (Concurrency ${concurrency})`);
 
     // 메모리 기반 결과 축적
-    let memoryKeywordBuffer: any[] = [];
+    let memoryKeywordBuffer: Keyword[] = [];
     let memorySeedUpdates: { id: string, status: 'success' | 'failed' }[] = [];
 
     const expandResults = await mapWithConcurrency(seedsData, concurrency, async (seed) => {
@@ -215,7 +235,7 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
                 return { status: 'fulfilled', seed, saved: 0 };
             }
         } catch (e: any) {
-            console.error(`[Batch] Seed Failed: ${seed.keyword} - ${e.message}`);
+            console.error(`[BatchRunner] Seed Failed: ${seed.keyword} - ${e.message}`);
             memorySeedUpdates.push({ id: seed.id, status: 'failed' });
             return { status: 'rejected', seed, error: e.message };
         }
@@ -225,9 +245,9 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     if (memoryKeywordBuffer.length > 0) {
         try {
             await bulkDeferredInsert(memoryKeywordBuffer);
-            console.log(`[Batch] ⚡ Deferred Bulk Insert: ${memoryKeywordBuffer.length} keywords`);
+            console.log(`[BatchRunner] ⚡ Deferred Bulk Insert: ${memoryKeywordBuffer.length} keywords`);
         } catch (e) {
-            console.error('[Batch] Bulk insert failed:', e);
+            console.error('[BatchRunner] Bulk insert failed:', e);
         }
     }
 
@@ -265,8 +285,8 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     const succeeded = expandResults.filter(r => r.status === 'fulfilled');
     return {
         processedSeeds: seedsData.length,
-        totalSaved: succeeded.reduce((sum, r: any) => (sum + (r.saved || 0)), 0),
-        details: expandResults.map((r: any) =>
+        totalSaved: succeeded.reduce((sum, r) => (sum + (r.saved || 0)), 0),
+        details: expandResults.map((r) =>
             r.status === 'fulfilled' ? `${r.seed.keyword} (+${r.saved})` :
                 r.status === 'rejected' ? `${r.seed.keyword} (rejected: ${r.error})` :
                     `${r.seed.keyword} (${r.status})`
@@ -275,11 +295,11 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
 }
 
 // Fill Docs 작업 함수
-async function runFillDocsTask(batchSize: number, concurrency: number, deadline: number) {
+async function runFillDocsTask(batchSize: number, concurrency: number, deadline: number): Promise<FillDocsResult | null> {
     const db = getTursoClient();
 
     // 🚀 Read/Write Optimization: Atomic claim
-    let docsToFill: any[] = [];
+    let docsToFill: SeedItem[] = [];
     try {
         const selectResult = await db.execute({
             sql: `SELECT id, keyword, total_search_cnt FROM keywords
@@ -311,14 +331,16 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     }
 
     if (docsToFill.length === 0) {
-        console.log('[FillDocs] No keywords need document count');
+        console.log('[BatchRunner] No keywords need document count');
         return {
             processed: 0,
-            errors: []
+            failed: 0,
+            skipped: 0,
+            details: []
         };
     }
 
-    console.log(`[Batch] FILL_DOCS: Claimed ${docsToFill.length} items (Concurrency ${concurrency})`);
+    console.log(`[BatchRunner] FILL_DOCS: Claimed ${docsToFill.length} items (Concurrency ${concurrency})`);
 
     // 메모리 기반 결과 축적
     let memoryDocUpdates: { id: string, counts: any }[] = [];
@@ -332,14 +354,14 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
             memoryDocUpdates.push({ id: item.id, counts });
             return { status: 'fulfilled', item, counts };
         } catch (e: any) {
-            console.error(`[Batch] Error filling ${item.keyword}: ${e.message}`);
-            return { status: 'rejected', keyword: item.keyword, error: e.message };
+            console.error(`[BatchRunner] Error filling ${item.keyword}: ${e.message}`);
+            return { status: 'rejected', keyword: item.keyword, item, error: e.message };
         }
     });
 
-    // 배치 업데이트 (안전하게 50개씩 청크)
+    // 배치 업데이트 (안전하게 200개씩 청크 - Rule 준수)
     if (memoryDocUpdates.length > 0) {
-        const CHUNK_SIZE = 50;
+        const CHUNK_SIZE = 200;
         for (let i = 0; i < memoryDocUpdates.length; i += CHUNK_SIZE) {
             const chunk = memoryDocUpdates.slice(i, i + CHUNK_SIZE);
             const updateStatements = chunk.map(({ id, counts }) => ({
@@ -355,9 +377,9 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
 
             try {
                 await db.batch(updateStatements);
-                console.log(`[Batch] ⚡ Bulk Doc Update: chunk ${Math.floor(i / CHUNK_SIZE) + 1} (${chunk.length} items)`);
+                console.log(`[BatchRunner] ⚡ Bulk Doc Update: chunk ${Math.floor(i / CHUNK_SIZE) + 1} (${chunk.length} items)`);
             } catch (e: any) {
-                console.error(`[Batch] Bulk doc update failed for chunk starting at ${i}:`, e.message);
+                console.error(`[BatchRunner] Bulk doc update failed for chunk starting at ${i}:`, e.message);
             }
         }
     }
@@ -367,13 +389,13 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     const skipped = processedResults.filter(r => r.status === 'skipped_deadline');
 
     // 🔴 실패(rejected) 또는 스킵(skipped) 항목 롤백 (매우 중요: -2 상태 고착 방지)
-    const rollbackIds = [
-        ...failed.map(r => r.item?.id).filter(Boolean),
-        ...skipped.map(r => r.item?.id).filter(Boolean)
+    const rollbackIds: string[] = [
+        ...failed.map(r => r.item?.id).filter((id): id is string => !!id),
+        ...skipped.map(r => r.item?.id).filter((id): id is string => !!id)
     ];
 
     if (rollbackIds.length > 0) {
-        console.log(`[Batch] 🔄 Rolling back ${rollbackIds.length} failed/skipped items to NULL`);
+        console.log(`[BatchRunner] 🔄 Rolling back ${rollbackIds.length} failed/skipped items to NULL`);
         // 롤백도 100개씩 청크
         for (let i = 0; i < rollbackIds.length; i += 100) {
             const chunk = rollbackIds.slice(i, i + 100);
@@ -384,7 +406,7 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
                     args: chunk
                 });
             } catch (err: any) {
-                console.error('[Batch] Rollback failed:', err.message);
+                console.error('[BatchRunner] Rollback failed:', err.message);
             }
         }
     }
@@ -395,8 +417,8 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
         skipped: skipped.length,
         details: processedResults.map((r: any) => {
             if (r.status === 'fulfilled') return `${r.item.keyword}: ${r.counts.total}`;
-            if (r.status === 'rejected') return `${r.keyword || r.item?.keyword}: ERROR`;
-            return `${r.item?.keyword}: SKIPPED`;
+            if (r.status === 'rejected') return `${r.keyword || r.item?.keyword || 'unknown'}: ERROR`;
+            return `${r.item?.keyword || 'unknown'}: SKIPPED`;
         })
     };
 }

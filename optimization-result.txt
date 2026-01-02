@@ -1,0 +1,39 @@
+﻿[dotenv@17.2.3] injecting env (4) from .env.local -- tip: ??audit secrets and track compliance: https://dotenvx.com/ops
+?뵩 Safe Storage Optimization
+
+Phase 1: Removing rarely-used indexes...
+
+??Dropped: idx_ctr_desc
+??Dropped: idx_pc_ctr_desc
+??Dropped: idx_mo_ctr_desc
+??Dropped: idx_cafe_opp
+??Dropped: idx_blog_opp
+??Dropped: idx_web_opp
+
+??Phase 1 Complete: 6 indexes removed
+?뮶 Estimated savings: 40-60 MB
+
+Phase 2: Verifying core indexes...
+
+Remaining core indexes:
+  1. idx_keywords_tier_ratio
+  2. idx_search_desc
+  3. idx_updated_at
+  4. idx_keyword_lookup
+  5. idx_expand_candidates
+  6. idx_fill_docs_candidates
+  7. idx_has_docs
+  8. idx_created_at_range
+
+?뱦 Summary:
+  - Removed: 6 low-priority indexes
+  - Kept: 8 core indexes
+  - Core indexes cover:
+    ??expand_candidates (is_expanded, total_search_cnt)
+    ??fill_docs_candidates (total_doc_cnt, total_search_cnt)
+    ??keywords_tier_ratio (tier, golden_ratio)
+    ??keyword_lookup (keyword)
+    ??search_desc (total_search_cnt)
+    ??updated_at (updated_at)
+
+??Note: Turso will auto-VACUUM to reclaim space (may take a few minutes)

@@ -73,7 +73,15 @@ export async function fetchRelatedKeywords(seed: string) {
     throw lastError || new Error('Failed to fetch related keywords');
 }
 
-export async function fetchDocumentCount(keyword: string) {
+export interface DocCounts {
+    blog: number;
+    cafe: number;
+    web: number;
+    news: number;
+    total: number;
+}
+
+export async function fetchDocumentCount(keyword: string): Promise<DocCounts> {
 
 
     type SearchType = 'blog' | 'cafearticle' | 'webkr' | 'news';

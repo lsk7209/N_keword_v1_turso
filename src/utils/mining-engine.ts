@@ -8,13 +8,39 @@
  */
 
 import { getTursoClient, generateUUID, getCurrentTimestamp } from '@/utils/turso';
-import { fetchRelatedKeywords, fetchDocumentCount } from '@/utils/naver-api';
+import { fetchRelatedKeywords, fetchDocumentCount, DocCounts } from '@/utils/naver-api';
 import { isBlacklisted } from '@/utils/blacklist';
+
+export interface Keyword {
+    keyword: string;
+    originalKeyword?: string;
+    total_search_cnt: number;
+    pc_search_cnt?: number;
+    mo_search_cnt?: number;
+    pc_click_cnt?: number;
+    mo_click_cnt?: number;
+    click_cnt?: number;
+    pc_ctr?: number;
+    mo_ctr?: number;
+    total_ctr?: number;
+    comp_idx?: string;
+    pl_avg_depth?: number;
+    total_doc_cnt?: number | null;
+    blog_doc_cnt?: number;
+    cafe_doc_cnt?: number;
+    web_doc_cnt?: number;
+    news_doc_cnt?: number;
+    golden_ratio?: number;
+    tier?: string;
+    is_expanded?: boolean | number;
+    created_at?: string;
+    updated_at?: string;
+}
 
 export interface MiningResult {
     processed: number; // Count of fully processed items (with doc count)
     saved: number; // Total items saved to DB
-    items: any[]; // The fully processed items to return to UI
+    items: Keyword[]; // The fully processed items to return to UI
 }
 
 export async function processSeedKeyword(
@@ -25,9 +51,8 @@ export async function processSeedKeyword(
     maxKeywords = 0
 ): Promise<MiningResult> {
     // 🚀 획기적 최적화: 메모리 기반 결과 축적
-    // DB Write를 완전히 제거하고 메모리에만 저장
-    let memoryResults: any[] = [];
-    let memoryDeferredResults: any[] = [];
+    let memoryResults: Keyword[] = [];
+    let memoryDeferredResults: Keyword[] = [];
 
     // 1. Fetch Related Keywords (Ad API)
     let relatedList: any[] = [];
@@ -111,8 +136,8 @@ export async function processSeedKeyword(
         finalFiltered = finalFiltered.slice(0, maxKeywords);
     }
 
-    let candidatesToProcess: any[] = [];
-    let candidatesToSaveOnly: any[] = [];
+    let candidatesToProcess: Keyword[] = [];
+    let candidatesToSaveOnly: Keyword[] = [];
 
     if (skipDocFetch) {
         candidatesToSaveOnly = finalFiltered;
@@ -207,7 +232,7 @@ export async function processSeedKeyword(
         const processedResults = allChunkResults.flat();
 
         // 6. Process Results for Memory
-        processedResults.forEach((r: any) => {
+        processedResults.forEach((r: Keyword & Partial<DocCounts>) => {
             // Golden Ratio: 검색량 / (블로그 + 카페 + 웹 문서수)
             // 뉴스는 제외 (SEO 경쟁 지표로 부적합)
             const viewDocCnt = (r.blog || 0) + (r.cafe || 0) + (r.web || 0);
@@ -237,7 +262,7 @@ export async function processSeedKeyword(
             }
 
             memoryResults.push({
-                keyword: r.originalKeyword,
+                keyword: r.originalKeyword || r.keyword,
                 total_search_cnt: r.total_search_cnt,
                 pc_search_cnt: r.pc_search_cnt,
                 mo_search_cnt: r.mo_search_cnt,
@@ -275,8 +300,7 @@ export async function processSeedKeyword(
 }
 
 // 🚀💰 Turso 비용 최적화: 중복 필터링 후 INSERT
-// INSERT OR IGNORE도 Write로 카운트되므로, 미리 중복을 제거하여 비용 90% 절감
-export async function bulkDeferredInsert(keywords: any[]): Promise<{ inserted: number }> {
+export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserted: number }> {
     if (!keywords.length) return { inserted: 0 };
 
     const db = getTursoClient();

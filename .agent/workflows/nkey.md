@@ -1,0 +1,42 @@
+---
+description: GoldenKeywordMiner
+---
+
+# 🚀 Golden Keyword Miner 프로젝트 룰
+
+이 프로젝트는 **Next.js (Vercel)**, **Turso (SQLite)**, **GitHub Actions** 환경에서 대규모 키워드 수집 및 분석을 수행합니다. 아래의 룰을 반드시 준수하여 시스템의 안정성과 비용 효율성을 유지해야 합니다.
+
+## 1. 📂 아키텍처 및 스택 가이드
+- **Framework**: Next.js 15+ (App Router)
+- **Hosting**: Vercel (Serverless Functions)
+- **Database**: Turso (libsql) - 비용 최적화가 최우선
+- **Automation**: GitHub Actions (메인 크론), Vercel Cron (백업 크론)
+
+## 2. 💾 Turso DB 최적화 (비용 절감 필수)
+- **지연 쓰기 (Deferred Writes)**: 모든 수집 결과는 메모리에 먼저 축적한 후, 마지막에 `batch` 명령어로 한 번에 삽입합니다.
+- **중복 필터링 (Deduplication)**: `INSERT OR IGNORE`를 사용하기 전에 반드시 애플리케이션 레벨에서 `SELECT`로 기존 키워드를 조회하여 신규 키워드만 삽입합니다. 이는 Row Writes 비용을 90% 이상 절감합니다.
+- **배치 크기**: 대량 업데이트/삽입 시 500~1000개 단위로 청크 처리하여 SQLite의 파라미터 제한을 방지합니다.
+- **상태 관리**: `is_expanded` (0: 대기, 1: 완료, 2: 진행중) 상태를 정확히 관리하여 중복 수집을 방지합니다.
+
+## 3. 📡 네이버 API 및 키 관리
+- **Key Manager 사용**: 반드시 `src/utils/key-manager.ts`를 통해 API 키를 관리합니다.
+- **라운드 로빈 (Round Robin)**: 모든 요청은 사용 가능한 여러 개의 API 키에 고르게 분산되어야 합니다.
+- **429 처리**: API 호출 실패(429) 시 해당 키를 즉시 쿨다운(최소 60초) 상태로 전환합니다.
+- **Lazy Loading**: 스크립트 실행 시 환경 변수가 로드된 후 키가 로드되도록 지연 초기화 로직을 유지합니다.
+
+## 4. ⚙️ 자동 수집 및 시간 제한 (Vercel Constraints)
+- **60초 마법**: Vercel Serverless Function의 60초 제한을 준수하기 위해, 실행 후 57~58초 시점에 작업을 중단하고 결과를 저장해야 합니다.
+- **데드라인 체크**: `Date.now() > deadline` 로직을 루프 내에 배치하여 안전한 종료를 보장합니다.
+- **GitHub Actions 연동**: GitHub Actions에서 루프를 돌며 Vercel API를 호출할 때, `CRON_SECRET`을 기반으로 한 인증을 반드시 수행합니다.
+
+## 5. 🛠️ 개발 및 코드 스타일
+- **TypeScript**: `any` 사용을 지양하고 명확한 인터페이스를 정의합니다.
+- **로깅**: 로그 앞에 작업의 출처를 명시합니다 (예: `[Batch]`, `[Expand]`, `[FillDocs]`).
+- **에러 핸들링**: 에러 발생 시 단순 에러 메시지뿐만 아니라, 발생한 시드 키워드 등의 컨텍스트를 함께 남깁니다.
+- **환경 변수**: 신규 환경 변수 추가 시 `.env.local.template`을 반드시 업데이트합니다.
+
+## 6. 🛡️ 보안 규칙
+- **CRON_SECRET**: 외부 노출 금지. API 호출 시 헤더 또는 쿼리 파라미터로 필수 검증합니다.
+- **Deployment Protection**: Vercel의 배포 보호 기능이 크론 호출을 차단하지 않도록 설정(Vercel Authentication OFF 또는 Bypass 설정)을 점검합니다.
+
+이 룰은 시스템의 자가 증식 수집(Self-Propagating Mining) 능력과 Turso의 무료/유료 제한 사이의 균형을 맞추기 위해 설계되었습니다.

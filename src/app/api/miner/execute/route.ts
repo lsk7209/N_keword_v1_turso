@@ -75,9 +75,9 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        console.log(`[Miner] Current mode: ${mode}, Result:`, { 
-            expand: result.expand?.totalSaved || 0, 
-            fillDocs: result.fillDocs?.processed || 0 
+        console.log(`[Miner] Current mode: ${mode}, Result:`, {
+            expand: result.expand?.totalSaved || 0,
+            fillDocs: result.fillDocs?.processed || 0
         });
 
         // NOTE:
@@ -88,19 +88,19 @@ export async function GET(req: NextRequest) {
 
         if (mode === 'TURBO' && allowSelfSpawn) {
             // Check for Stop Conditions (Quota Exhaustion or System Failure)
-            const fillErrors = result.fillDocs?.errors || [];
+            const fillErrors = result.fillDocs?.error ? [result.fillDocs.error] : [];
             const expandErrors = result.expand?.details?.filter((d: string) => d.includes('rejected') || d.includes('error')) || [];
             const allErrors = [...fillErrors, ...expandErrors];
-            
+
             // 검색 API 키 소진 체크
-            const isSearchKeyExhausted = allErrors.some((e: string) => 
-                e.includes('No SEARCH keys') || 
+            const isSearchKeyExhausted = allErrors.some((e: string) =>
+                e.includes('No SEARCH keys') ||
                 e.includes('All SEARCH keys are rate limited')
             );
-            
+
             // 검색광고 API 키 소진 체크
-            const isAdKeyExhausted = allErrors.some((e: string) => 
-                e.includes('No AD keys') || 
+            const isAdKeyExhausted = allErrors.some((e: string) =>
+                e.includes('No AD keys') ||
                 e.includes('All AD keys are rate limited') ||
                 e.includes('Failed to fetch related keywords')
             );
@@ -110,10 +110,10 @@ export async function GET(req: NextRequest) {
 
             // API 키 모두 소진 또는 연속 실패 시 자동 중지
             if (isSearchKeyExhausted || isAdKeyExhausted || (isTotalFailure && allErrors.length > 5)) {
-                const reason = isSearchKeyExhausted ? 'Search API Keys Exhausted' 
+                const reason = isSearchKeyExhausted ? 'Search API Keys Exhausted'
                     : isAdKeyExhausted ? 'Ad API Keys Exhausted'
-                    : 'High Failure Rate';
-                
+                        : 'High Failure Rate';
+
                 console.warn(`[Miner] TURBO STOP: ${reason}. Auto-switching to NORMAL mode.`);
 
                 // Disable Turbo Mode in DB (자동으로 일반 모드로 변경)
@@ -148,8 +148,8 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({
             ...result,
             mode: mode,
-            info: mode === 'TURBO' 
-                ? (allowSelfSpawn ? 'Turbo Mode: Continuous background execution' : 'Turbo Mode: Driven by scheduler (GitHub Actions loop recommended)') 
+            info: mode === 'TURBO'
+                ? (allowSelfSpawn ? 'Turbo Mode: Continuous background execution' : 'Turbo Mode: Driven by scheduler (GitHub Actions loop recommended)')
                 : 'Normal Mode: Scheduled execution via GitHub Actions (every 5 minutes)'
         });
     } catch (e: any) {
