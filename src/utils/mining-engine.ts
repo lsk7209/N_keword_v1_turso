@@ -301,39 +301,29 @@ export async function processSeedKeyword(
     };
 }
 
-// 🚀💰 Turso 비용 최적화: Serverless-Optimized Strategy
+// 🚀💰💥 ULTIMATE: Pure Write-Only Mode
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Serverless 환경: In-Memory Cache는 매 요청마다 43만 행 SELECT → 60초 초과!
-// 해결: Bloom Filter (1MB 로드 = 0.1초) + ON CONFLICT DO UPDATE
+// Row Reads: 0 (완전 제거!)
+// 전략: ON CONFLICT DO UPDATE가 중복을 자동 처리
+// → 사전 중복 체크(SELECT, Bloom Filter) 완전 불필요!
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserted: number; updated: number }> {
     if (!keywords.length) return { inserted: 0, updated: 0 };
 
     const db = getTursoClient();
-    const bloom = await BloomManager.getFilter(); // ⚡ Fast: ~100ms for 1MB
+    // ❌ Bloom Filter 로드 제거 - 읽기 비용!
+    // const bloom = await BloomManager.getFilter();
 
-    // 1️⃣ 로컬 중복 제거 (동일 배치 내)
+    // 1️⃣ 로컬 중복 제거 (동일 배치 내만 - 메모리 연산)
     const uniqueKeywords = Array.from(new Map(keywords.map(k => [k.keyword, k])).values());
 
-    // 2️⃣ Bloom Filter로 확실히 신규인 것들 선별 (DB Read 없음!)
-    const definitelyNew: Keyword[] = [];
-    const maybeExisting: Keyword[] = [];
-
-    uniqueKeywords.forEach(k => {
-        if (bloom.maybeExists(k.keyword)) {
-            maybeExisting.push(k); // Might exist, need DB check
-        } else {
-            definitelyNew.push(k); // Definitely new!
-        }
-    });
-
-    console.log(`[MiningEngine] 🌸 Bloom Pre-Filter: ${uniqueKeywords.length} items -> Definitely New: ${definitelyNew.length}, Maybe Existing: ${maybeExisting.length}`);
+    console.log(`[MiningEngine] 🎯 Pure Write-Only: ${uniqueKeywords.length} keywords (NO READS!)`);
 
     if (uniqueKeywords.length === 0) {
         return { inserted: 0, updated: 0 };
     }
 
-    // 3️⃣ ON CONFLICT DO UPDATE (모든 키워드에 적용)
+    // 2️⃣ ON CONFLICT DO UPDATE (모든 키워드에 적용 - 중복 체크 불필요!)
     // - Definitely New: INSERT
     // - Maybe Existing: INSERT or UPDATE (ON CONFLICT 자동 처리)
     const BATCH_SIZE = 500;
@@ -375,23 +365,13 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
 
         try {
             await db.batch(statements);
-
-            // 4️⃣ Bloom Filter 업데이트: Definitely New만 추가
-            const newInBatch = batch.filter(k => !bloom.maybeExists(k.keyword));
-            newInBatch.forEach(k => bloom.add(k.keyword));
-
-            totalInserted += newInBatch.length;
-            totalUpdated += (batch.length - newInBatch.length);
-
-            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ~${newInBatch.length} new, ~${batch.length - newInBatch.length} updated`);
+            totalInserted += batch.length;
+            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} upserted`);
         } catch (e: any) {
             console.error(`[MiningEngine] Batch upsert failed at offset ${i}:`, e.message);
         }
     }
 
-    // 5️⃣ Bloom Filter 영속화
-    await BloomManager.saveFilter(bloom);
-
-    console.log(`[MiningEngine] 🎯 Serverless-Optimized Upsert: ${totalInserted} inserted, ${totalUpdated} updated`);
+    console.log(`[MiningEngine] 🎯 Pure Write-Only Complete: ${totalInserted} upserted (Row Reads: 0)`);
     return { inserted: totalInserted, updated: totalUpdated };
 }

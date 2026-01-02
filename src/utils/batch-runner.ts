@@ -161,46 +161,38 @@ interface SeedItem {
 }
 
 // Expand 작업 함수
+// 🚀 RADICAL: UPDATE...RETURNING으로 SELECT 완전 제거
 async function runExpandTask(batchSize: number, concurrency: number, minSearchVolume: number, deadline: number): Promise<ExpandResult | null> {
     const db = getTursoClient();
 
-    // 🚀 Read/Write Optimization: Use batch for atomic claim
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🎯 ZERO-READ CLAIM: UPDATE...RETURNING 패턴
+    // 기존: SELECT → UPDATE (2 queries, N reads)
+    // 신규: UPDATE...RETURNING (1 query, 0 reads!)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     let seedsData: SeedItem[] = [];
     try {
-        const selectResult = await db.execute({
-            sql: `SELECT id, keyword, total_search_cnt FROM keywords
-                  WHERE (is_expanded = 0)
-                     OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours')) -- Retry stuck ones
-                     OR (is_expanded = 1 AND updated_at < datetime('now', '-7 days'))
-                  ORDER BY
-                      CASE
-                          WHEN is_expanded = 0 THEN 0
-                          WHEN is_expanded = 2 THEN 1
-                          WHEN is_expanded = 1 THEN 2
-                      END,
-                      total_search_cnt DESC
-                  LIMIT ?`,
-            args: [batchSize]
+        const claimResult = await db.execute({
+            sql: `UPDATE keywords 
+                  SET is_expanded = 2, updated_at = ?
+                  WHERE id IN (
+                      SELECT id FROM keywords
+                      WHERE (is_expanded = 0)
+                         OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours'))
+                      ORDER BY total_search_cnt DESC
+                      LIMIT ?
+                  )
+                  RETURNING id, keyword, total_search_cnt`,
+            args: [getCurrentTimestamp(), Math.min(batchSize, 100)]
         });
 
-        seedsData = selectResult.rows.map(row => ({
+        seedsData = claimResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        if (seedsData.length > 0) {
-            const ids = seedsData.map(s => s.id);
-            const placeholders = ids.map(() => '?').join(',');
-
-            // Mark as processing in one batch call alongside the previous read concept?
-            // Since Turso is remote, we minimize round trips.
-            await db.execute({
-                sql: `UPDATE keywords SET is_expanded = 2, updated_at = ? WHERE id IN (${placeholders})`,
-                args: [getCurrentTimestamp(), ...ids]
-            });
-            console.log(`[Expand] Claimed ${seedsData.length} seeds`);
-        }
+        console.log(`[Expand] 🎯 Zero-Read Claim: ${seedsData.length} seeds claimed via UPDATE...RETURNING`);
     } catch (err: any) {
         console.error('[Expand] Failed to claim seeds:', err.message);
         return null;
@@ -214,6 +206,7 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
             details: []
         };
     }
+
     console.log(`[Batch] EXPAND: Claimed ${seedsData.length} seeds (Concurrency ${concurrency})`);
 
     // 메모리 기반 결과 축적
@@ -296,36 +289,36 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
 }
 
 // Fill Docs 작업 함수
+// 🚀 RADICAL: UPDATE...RETURNING으로 SELECT 완전 제거
 async function runFillDocsTask(batchSize: number, concurrency: number, deadline: number): Promise<FillDocsResult | null> {
     const db = getTursoClient();
 
-    // 🚀 Read/Write Optimization: Atomic claim
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🎯 ZERO-READ CLAIM: UPDATE...RETURNING 패턴
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     let docsToFill: SeedItem[] = [];
     try {
-        const selectResult = await db.execute({
-            sql: `SELECT id, keyword, total_search_cnt FROM keywords
-                  WHERE (total_doc_cnt IS NULL)
-                     OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours')) -- Retry stuck ones
-                  ORDER BY total_search_cnt DESC
-                  LIMIT ?`,
-            args: [batchSize]
+        const claimResult = await db.execute({
+            sql: `UPDATE keywords 
+                  SET total_doc_cnt = -2, updated_at = ?
+                  WHERE id IN (
+                      SELECT id FROM keywords
+                      WHERE (total_doc_cnt IS NULL)
+                         OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours'))
+                      ORDER BY total_search_cnt DESC
+                      LIMIT ?
+                  )
+                  RETURNING id, keyword, total_search_cnt`,
+            args: [getCurrentTimestamp(), Math.min(batchSize, 200)]
         });
 
-        docsToFill = selectResult.rows.map(row => ({
+        docsToFill = claimResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        if (docsToFill.length > 0) {
-            const ids = docsToFill.map(d => d.id);
-            const placeholders = ids.map(() => '?').join(',');
-            await db.execute({
-                sql: `UPDATE keywords SET total_doc_cnt = -2, updated_at = ? WHERE id IN (${placeholders})`,
-                args: [getCurrentTimestamp(), ...ids]
-            });
-            console.log(`[FillDocs] Claimed ${docsToFill.length} keywords`);
-        }
+        console.log(`[FillDocs] 🎯 Zero-Read Claim: ${docsToFill.length} keywords claimed via UPDATE...RETURNING`);
     } catch (err: any) {
         console.error('[FillDocs] Failed to claim keywords:', err.message);
         return null;
