@@ -218,21 +218,21 @@ export async function processSeedKeyword(
             if (viewDocCnt > 0) {
                 ratio = r.total_search_cnt / viewDocCnt;
 
-                // 등급 산정: 1~5등급 (1등급이 최고)
+                // 등급 산정: PLATINUM, GOLD, SILVER, BRONZE
                 if (viewDocCnt <= 100 && ratio > 5) {
-                    tier = '1등급';  // 초고효율: 문서 100개 이하 + 비율 5 이상
+                    tier = 'PLATINUM';  // 초고효율: 문서 100개 이하 + 비율 5 이상
                 } else if (ratio > 10) {
-                    tier = '2등급';  // 매우 높은 비율
+                    tier = 'PLATINUM';  // 매우 높은 비율
                 } else if (ratio > 5) {
-                    tier = '3등급';  // 높은 비율
+                    tier = 'GOLD';      // 높은 비율
                 } else if (ratio > 1) {
-                    tier = '4등급';  // 보통 비율
+                    tier = 'SILVER';    // 보통 비율
                 } else {
-                    tier = '5등급';  // 낮은 비율
+                    tier = 'BRONZE';    // 낮은 비율
                 }
             } else if (r.total_search_cnt > 0 && r.total != null) {
-                // No view competition? 1등급!
-                tier = '1등급';
+                // No view competition? PLATINUM!
+                tier = 'PLATINUM';
                 ratio = 99.99;
             }
 

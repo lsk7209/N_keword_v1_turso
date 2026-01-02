@@ -24,8 +24,6 @@ async function generateSignature(timestamp: string, method: string, uri: string,
 }
 
 export async function fetchRelatedKeywords(seed: string) {
-    console.log(`[NaverAPI] Fetching related keywords for: "${seed}"`);
-
     // Retry up to 3 times with different keys
     let lastError: any;
 
@@ -35,75 +33,43 @@ export async function fetchRelatedKeywords(seed: string) {
             const { accessKey, secretKey, customerId } = key.parsed;
 
             const timestamp = Date.now().toString();
-            const method = 'GET';
             const uri = '/keywordstool';
 
             if (!accessKey || !secretKey) throw new Error('Invalid Ad Key');
 
-            const signature = await generateSignature(timestamp, method, uri, secretKey);
-
-            const params = new URLSearchParams();
-            params.append('hintKeywords', seed);
-            params.append('showDetail', '1');
-
-            const url = `https://api.naver.com${uri}?${params.toString()}`;
+            const signature = await generateSignature(timestamp, 'GET', uri, secretKey);
+            const url = `https://api.naver.com${uri}?hintKeywords=${encodeURIComponent(seed)}&showDetail=1`;
 
             const headers: Record<string, string> = {
                 'X-Timestamp': timestamp,
                 'X-API-KEY': accessKey,
                 'X-Signature': signature,
             };
+            if (customerId) headers['X-Customer'] = customerId;
 
-            if (customerId) {
-                headers['X-Customer'] = customerId;
-            }
-
-            // 터보모드: 로깅 최소화로 성능 향상
             const response = await fetch(url, { headers });
 
             if (response.status === 429) {
                 keyManager.report429(key.id, 'AD');
-                console.warn(`[NaverAPI] Ad Key ${key.id.substring(0, 8)}... rate limited. Retrying with next key...`);
-                // 다음 키로 즉시 전환 (cooldown은 이미 설정됨)
-                continue; // Try next key immediately
+                await sleep(500 + Math.random() * 500); // Small jitter backoff
+                continue;
             }
 
             if (!response.ok) {
                 const text = await response.text();
-                console.error(`[NaverAPI] Ad API Error ${response.status}: ${text}`);
-                // If it's a 4xx error (other than 429), it might be invalid key signature or bad request. 
-                // We should probably try another key just in case, unless it's 400 Bad Request (logic error).
-                // For safety, let's treat it as key failure and retry.
-                console.warn(`[NaverAPI] Retrying with new key...`);
                 lastError = new Error(`Ad API Error: ${response.status} - ${text}`);
                 continue;
             }
 
             const data = await response.json();
-            const keywordList = data.keywordList || [];
-
-            console.log(`[NaverAPI] Success! Got ${keywordList.length} keywords for "${seed}"`);
-
-            // 샘플 데이터 로깅 (처음 3개만)
-            if (keywordList.length > 0 && keywordList.length <= 3) {
-                console.log(`[NaverAPI] Sample:`, keywordList.map((k: any) => `${k.relKeyword} (${k.monthlyPcQcCnt}/${k.monthlyMobileQcCnt})`));
-            } else if (keywordList.length > 3) {
-                console.log(`[NaverAPI] Sample (first 3):`, keywordList.slice(0, 3).map((k: any) => `${k.relKeyword} (${k.monthlyPcQcCnt}/${k.monthlyMobileQcCnt})`));
-            }
-
-            return keywordList;
+            return data.keywordList || [];
 
         } catch (e) {
-            console.error(`[NaverAPI] Exception on attempt ${i + 1}:`, e);
             lastError = e;
-            // 네트워크 오류가 아닌 경우 즉시 다음 키로 전환
             if (e instanceof Error && e.message.includes('No AD keys')) throw e;
-            // 짧은 대기 후 다음 키 시도 (네트워크 오류 대비)
-            if (i < 2) await sleep(500); // 3번째 시도 전에만 대기
+            if (i < 2) await sleep(300 + Math.random() * 200);
         }
     }
-
-    console.error(`[NaverAPI] Failed after 3 attempts for "${seed}"`);
     throw lastError || new Error('Failed to fetch related keywords');
 }
 

@@ -43,6 +43,8 @@ export default async function MonitorPage() {
     let expanded = 0;
     let platinumCount = 0;
     let goldCount = 0;
+    let silverCount = 0;
+    let bronzeCount = 0;
     let recentLogs: any[] = [];
     let errorMsg = '';
     const adKeyStatus = keyManager.getStatusSummary('AD');
@@ -74,22 +76,26 @@ export default async function MonitorPage() {
             seedPendingResult,
             seedExpandedResult,
             seedProcessingResult,
-            recentSeedsResult
+            recentSeedsResult,
+            silverResult,
+            bronzeResult
         ] = await Promise.all([
             db.execute('SELECT COUNT(*) as count FROM keywords'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NOT NULL'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt >= 0'),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 1'),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['PLATINUM']),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['GOLD']),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE created_at >= ?', [since24h]),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt IS NOT NULL AND updated_at >= ?', [since24h]),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt >= 0 AND updated_at >= ?', [since24h]),
             db.execute('SELECT * FROM keywords ORDER BY created_at DESC LIMIT 10'),
             // 시드키워드 현황 (검색량 100 이상인 키워드 - 수집 기준과 동일)
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_search_cnt >= 100'),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 0 AND total_search_cnt >= 100'),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 1 AND total_search_cnt >= 100'),
             db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 2 AND total_search_cnt >= 100'),
-            db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 100 ORDER BY total_search_cnt DESC LIMIT 20')
+            db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 100 ORDER BY total_search_cnt DESC LIMIT 20'),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['SILVER']),
+            db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['BRONZE'])
         ]);
 
         total = (totalResult.rows[0]?.count as number) || 0;
@@ -97,6 +103,8 @@ export default async function MonitorPage() {
         expanded = (expandedResult.rows[0]?.count as number) || 0;
         platinumCount = (platinumResult.rows[0]?.count as number) || 0;
         goldCount = (goldResult.rows[0]?.count as number) || 0;
+        silverCount = (silverResult.rows[0]?.count as number) || 0;
+        bronzeCount = (bronzeResult.rows[0]?.count as number) || 0;
         newKeywords24h = (newKeywords24hResult.rows[0]?.count as number) || 0;
         docsFilled24h = (docsFilled24hResult.rows[0]?.count as number) || 0;
         recentLogs = logsResult.rows.map(row => ({
@@ -238,7 +246,8 @@ export default async function MonitorPage() {
                         <div className="space-y-4">
                             <TierBar label="PLATINUM (비율 10+)" count={platinumCount || 0} total={analyzed} color="bg-cyan-500" />
                             <TierBar label="GOLD (비율 5+)" count={goldCount || 0} total={analyzed} color="bg-yellow-500" />
-                            <TierBar label="SILVER (비율 1+)" count={(analyzed - (platinumCount || 0) - (goldCount || 0))} total={analyzed} color="bg-zinc-400" />
+                            <TierBar label="SILVER (비율 1+)" count={silverCount || 0} total={analyzed} color="bg-zinc-400" />
+                            <TierBar label="BRONZE (비율 0+)" count={bronzeCount || 0} total={analyzed} color="bg-amber-600" />
                         </div>
                         <div className="mt-6 p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg text-sm text-zinc-500">
                             💡 <b>Platinum</b>은 검색량 대비 문서수가 매우 적은 '빈집' 키워드입니다. 우선적으로 포스팅 주제로 선정하세요.

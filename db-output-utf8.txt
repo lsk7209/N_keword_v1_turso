@@ -1,0 +1,14 @@
+﻿[dotenv@17.2.3] injecting env (4) from .env.local -- tip: ?숋툘  write to custom object with { processEnv: myObject }
+--- Database Stats ---
+Total keywords: 428557
+is_expanded = 0: 246359
+is_expanded = 1: 182198
+is_expanded = 2 (In Progress): 0
+total_doc_cnt IS NULL: 14893
+Mining Mode: TURBO (default)
+--- Recent Updates ---
+PC?ㅽ떚而?(2025-12-30T03:25:38.928Z)
+?⑺븨?쒗듃吏 (2025-12-30T03:25:38.928Z)
+?ㅼ궗?꾨┛??(2025-12-30T03:25:38.928Z)
+?쒗듃吏?쒓났?낆껜 (2025-12-30T03:25:38.928Z)
+?몃??쒗듃吏 (2025-12-30T03:25:38.928Z)

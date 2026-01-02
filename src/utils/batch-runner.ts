@@ -35,6 +35,10 @@ async function mapWithConcurrency<T, R>(
         while (true) {
             const idx = nextIndex++;
             if (idx >= items.length) return;
+            // 🚀 Stability Optimization: Small jitter between requests to avoid burst 429s
+            if (nextIndex > concurrency) {
+                await new Promise(r => setTimeout(r, Math.random() * 50 + 10));
+            }
             results[idx] = await worker(items[idx], idx);
         }
     });
@@ -66,7 +70,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     // AD 14개: 분당 Rate Limit 있으므로 빠른 라운드 로빈으로 키당 15회 요청 가능
     // SEARCH 30개: 일일 25,000회 제한이므로 매우 여유로움
     // ═══════════════════════════════════════════════════════════════
-    const baseExpandConcurrency = Math.min(200, Math.max(50, adKeyCount * 15));
+    const baseExpandConcurrency = Math.min(100, Math.max(20, adKeyCount * 5)); // Higher concurrency often leads to 429s on AD API
     const baseFillConcurrency = Math.min(500, Math.max(100, searchKeyCount * 15));
 
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 200, baseExpandConcurrency);
@@ -88,21 +92,22 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
     // 결과 객체
     let result: any = {};
 
-    // Expand 작업
+    // 🚀 Volume Optimization: Run Expand and FillDocs in Parallel
+    const tasks: Promise<void>[] = [];
+
     if (task === 'expand' || task === 'all') {
-        const expandResult = await runExpandTask(EXPAND_BATCH, EXPAND_CONCURRENCY, MIN_SEARCH_VOLUME, deadline);
-        if (expandResult) {
-            result.expand = expandResult;
-        }
+        tasks.push(runExpandTask(EXPAND_BATCH, EXPAND_CONCURRENCY, MIN_SEARCH_VOLUME, deadline).then(res => {
+            if (res) result.expand = res;
+        }));
     }
 
-    // Fill Docs 작업
     if (task === 'fill_docs' || task === 'all') {
-        const fillResult = await runFillDocsTask(FILL_DOCS_BATCH, FILL_DOCS_CONCURRENCY, deadline);
-        if (fillResult) {
-            result.fillDocs = fillResult;
-        }
+        tasks.push(runFillDocsTask(FILL_DOCS_BATCH, FILL_DOCS_CONCURRENCY, deadline).then(res => {
+            if (res) result.fillDocs = res;
+        }));
     }
+
+    await Promise.all(tasks);
 
     const end = Date.now();
     console.log(`[Batch] Completed in ${(end - start)}ms`);
@@ -114,20 +119,19 @@ export async function runMiningBatch(options: MiningBatchOptions = {}) {
 async function runExpandTask(batchSize: number, concurrency: number, minSearchVolume: number, deadline: number) {
     const db = getTursoClient();
 
-    // 시드 선점 (2단계: SELECT → UPDATE)
+    // 🚀 Read/Write Optimization: Use batch for atomic claim
     let seedsData: any[] = [];
     try {
-        // 1단계: 시드 조회
         const selectResult = await db.execute({
             sql: `SELECT id, keyword, total_search_cnt FROM keywords
                   WHERE (is_expanded = 0)
-                     OR (is_expanded = 2)
+                     OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours')) -- Retry stuck ones
                      OR (is_expanded = 1 AND updated_at < datetime('now', '-7 days'))
                   ORDER BY
                       CASE
                           WHEN is_expanded = 0 THEN 0
                           WHEN is_expanded = 2 THEN 1
-                          WHEN is_expanded = 1 AND updated_at < datetime('now', '-7 days') THEN 2
+                          WHEN is_expanded = 1 THEN 2
                       END,
                       total_search_cnt DESC
                   LIMIT ?`,
@@ -140,16 +144,14 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        console.log(`[Expand] Selected ${seedsData.length} seeds (batch: ${batchSize})`);
-
-        // 2단계: 선택된 시드 상태 업데이트
         if (seedsData.length > 0) {
             const ids = seedsData.map(s => s.id);
             const placeholders = ids.map(() => '?').join(',');
+
+            // Mark as processing in one batch call alongside the previous read concept?
+            // Since Turso is remote, we minimize round trips.
             await db.execute({
-                sql: `UPDATE keywords 
-                      SET is_expanded = 2, updated_at = ? 
-                      WHERE id IN (${placeholders})`,
+                sql: `UPDATE keywords SET is_expanded = 2, updated_at = ? WHERE id IN (${placeholders})`,
                 args: [getCurrentTimestamp(), ...ids]
             });
             console.log(`[Expand] Claimed ${seedsData.length} seeds`);
@@ -241,7 +243,9 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
         processedSeeds: seedsData.length,
         totalSaved: succeeded.reduce((sum, r: any) => (sum + (r.saved || 0)), 0),
         details: expandResults.map((r: any) =>
-            r.status === 'fulfilled' ? `${r.seed.keyword} (+${r.saved})` : `${r.seed.keyword} (${r.status})`
+            r.status === 'fulfilled' ? `${r.seed.keyword} (+${r.saved})` :
+                r.status === 'rejected' ? `${r.seed.keyword} (rejected: ${r.error})` :
+                    `${r.seed.keyword} (${r.status})`
         )
     };
 }
@@ -250,13 +254,13 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
 async function runFillDocsTask(batchSize: number, concurrency: number, deadline: number) {
     const db = getTursoClient();
 
-    // 대상 선점 (2단계: SELECT → UPDATE)
+    // 🚀 Read/Write Optimization: Atomic claim
     let docsToFill: any[] = [];
     try {
-        // 1단계: 대상 조회
         const selectResult = await db.execute({
             sql: `SELECT id, keyword, total_search_cnt FROM keywords
-                  WHERE total_doc_cnt IS NULL
+                  WHERE (total_doc_cnt IS NULL)
+                     OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours')) -- Retry stuck ones
                   ORDER BY total_search_cnt DESC
                   LIMIT ?`,
             args: [batchSize]
@@ -268,17 +272,12 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        console.log(`[FillDocs] Selected ${docsToFill.length} keywords (batch: ${batchSize})`);
-
-        // 2단계: 선택된 키워드 상태 업데이트
         if (docsToFill.length > 0) {
             const ids = docsToFill.map(d => d.id);
             const placeholders = ids.map(() => '?').join(',');
             await db.execute({
-                sql: `UPDATE keywords 
-                      SET total_doc_cnt = -2 
-                      WHERE id IN (${placeholders})`,
-                args: ids
+                sql: `UPDATE keywords SET total_doc_cnt = -2, updated_at = ? WHERE id IN (${placeholders})`,
+                args: [getCurrentTimestamp(), ...ids]
             });
             console.log(`[FillDocs] Claimed ${docsToFill.length} keywords`);
         }
@@ -314,24 +313,28 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
         }
     });
 
-    // 배치 업데이트
+    // 배치 업데이트 (안전하게 50개씩 청크)
     if (memoryDocUpdates.length > 0) {
-        const updateStatements = memoryDocUpdates.map(({ id, counts }) => ({
-            sql: `UPDATE keywords SET
-                total_doc_cnt = ?, blog_doc_cnt = ?, cafe_doc_cnt = ?,
-                web_doc_cnt = ?, news_doc_cnt = ?, updated_at = ?
-                WHERE id = ?`,
-            args: [
-                counts.total, counts.blog || 0, counts.cafe || 0,
-                counts.web || 0, counts.news || 0, getCurrentTimestamp(), id
-            ]
-        }));
+        const CHUNK_SIZE = 50;
+        for (let i = 0; i < memoryDocUpdates.length; i += CHUNK_SIZE) {
+            const chunk = memoryDocUpdates.slice(i, i + CHUNK_SIZE);
+            const updateStatements = chunk.map(({ id, counts }) => ({
+                sql: `UPDATE keywords SET
+                    total_doc_cnt = ?, blog_doc_cnt = ?, cafe_doc_cnt = ?,
+                    web_doc_cnt = ?, news_doc_cnt = ?, updated_at = ?
+                    WHERE id = ?`,
+                args: [
+                    counts.total, counts.blog || 0, counts.cafe || 0,
+                    counts.web || 0, counts.news || 0, getCurrentTimestamp(), id
+                ]
+            }));
 
-        try {
-            await db.batch(updateStatements);
-            console.log(`[Batch] ⚡ Bulk Doc Update: ${memoryDocUpdates.length} documents`);
-        } catch (e) {
-            console.error('[Batch] Bulk doc update failed:', e);
+            try {
+                await db.batch(updateStatements);
+                console.log(`[Batch] ⚡ Bulk Doc Update: chunk ${Math.floor(i / CHUNK_SIZE) + 1} (${chunk.length} items)`);
+            } catch (e: any) {
+                console.error(`[Batch] Bulk doc update failed for chunk starting at ${i}:`, e.message);
+            }
         }
     }
 
@@ -339,14 +342,27 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     const failed = processedResults.filter(r => r.status === 'rejected');
     const skipped = processedResults.filter(r => r.status === 'skipped_deadline');
 
-    // 스킵된 항목 롤백
-    if (skipped.length > 0) {
-        const skippedIds = skipped.map(r => r.item.id);
-        const placeholders = skippedIds.map(() => '?').join(',');
-        await db.execute({
-            sql: `UPDATE keywords SET total_doc_cnt = NULL WHERE id IN (${placeholders})`,
-            args: skippedIds
-        });
+    // 🔴 실패(rejected) 또는 스킵(skipped) 항목 롤백 (매우 중요: -2 상태 고착 방지)
+    const rollbackIds = [
+        ...failed.map(r => r.item?.id).filter(Boolean),
+        ...skipped.map(r => r.item?.id).filter(Boolean)
+    ];
+
+    if (rollbackIds.length > 0) {
+        console.log(`[Batch] 🔄 Rolling back ${rollbackIds.length} failed/skipped items to NULL`);
+        // 롤백도 100개씩 청크
+        for (let i = 0; i < rollbackIds.length; i += 100) {
+            const chunk = rollbackIds.slice(i, i + 100);
+            const placeholders = chunk.map(() => '?').join(',');
+            try {
+                await db.execute({
+                    sql: `UPDATE keywords SET total_doc_cnt = NULL WHERE id IN (${placeholders})`,
+                    args: chunk
+                });
+            } catch (err: any) {
+                console.error('[Batch] Rollback failed:', err.message);
+            }
+        }
     }
 
     return {
@@ -355,8 +371,8 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
         skipped: skipped.length,
         details: processedResults.map((r: any) => {
             if (r.status === 'fulfilled') return `${r.item.keyword}: ${r.counts.total}`;
-            if (r.status === 'rejected') return `${r.keyword}: ERROR`;
-            return `${r.item.keyword}: SKIPPED`;
+            if (r.status === 'rejected') return `${r.keyword || r.item?.keyword}: ERROR`;
+            return `${r.item?.keyword}: SKIPPED`;
         })
     };
 }
