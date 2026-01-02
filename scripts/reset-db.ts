@@ -2,7 +2,11 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 import { getTursoClient } from '../src/utils/turso';
-import { getCurrentTimestamp } from '../src/utils/date'; // or implement simple one
+
+// Simple timestamp helper
+function getCurrentTimestamp() {
+    return new Date().toISOString();
+}
 
 async function resetDb() {
     const db = getTursoClient();
