@@ -8,10 +8,6 @@
         {
             "path": "/api/miner/execute?task=expand&expandBatch=1000&expandConcurrency=150&minSearchVolume=10&maxRunMs=58000",
             "schedule": "*/5 * * * *"
-        },
-        {
-            "path": "/api/miner/execute?task=fill_docs&fillBatch=500&fillConcurrency=100&maxRunMs=55000",
-            "schedule": "2-59/5 * * * *"
         }
     ],
     "headers": [
