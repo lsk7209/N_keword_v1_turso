@@ -319,6 +319,27 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
 
     console.log(`[MiningEngine] 🎯 Pure Write-Only: ${uniqueKeywords.length} keywords (NO READS!)`);
 
+    // 🔍 DEBUG: 샘플링 검사 (처음 3개만) - 진짜로 다 중복인지 확인
+    if (uniqueKeywords.length > 0) {
+        try {
+            const samples = uniqueKeywords.slice(0, 3).map(k => k.keyword);
+            const placeholders = samples.map(() => '?').join(',');
+            const check = await db.execute({
+                sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
+                args: samples
+            });
+            const existing = new Set(check.rows.map(r => r.keyword));
+
+            console.log('[MiningEngine] 🕵️ Sample Check (Top 3):');
+            samples.forEach(k => {
+                const exists = existing.has(k);
+                console.log(`  - "${k}": ${exists ? 'EXISTS (Update)' : 'NEW (Insert)'}`);
+            });
+        } catch (e) {
+            console.error('[MiningEngine] Sample check failed (ignoring)', e);
+        }
+    }
+
     if (uniqueKeywords.length === 0) {
         return { inserted: 0, updated: 0 };
     }

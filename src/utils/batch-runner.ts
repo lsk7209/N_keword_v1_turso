@@ -172,15 +172,15 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     let seedsData: SeedItem[] = [];
     try {
-        // 🔄 ROLLBACK & FIX: UPDATE...RETURNING 이슈 해결을 위해 표준 패턴으로 복귀
-        // 1. SELECT (Read Cost: Low - LIMIT 100)
+        // 1. SELECT (Read Cost: Low - LIMIT 500)
+        // Concurrency가 높으므로 충분한 시드를 가져와야 함
         const selectResult = await db.execute({
             sql: `SELECT id, keyword, total_search_cnt FROM keywords
                   WHERE (is_expanded = 0)
                      OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours'))
                   ORDER BY total_search_cnt DESC
                   LIMIT ?`,
-            args: [Math.min(batchSize, 100)]
+            args: [Math.min(batchSize, 500)]
         });
 
         seedsData = selectResult.rows.map(row => ({
@@ -308,14 +308,14 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     let docsToFill: SeedItem[] = [];
     try {
         // 🔄 ROLLBACK & FIX: Standard Claim Pattern
-        // 1. SELECT (Read Cost: Low - LIMIT 200)
+        // 1. SELECT (Read Cost: Low - LIMIT 500)
         const selectResult = await db.execute({
             sql: `SELECT id, keyword, total_search_cnt FROM keywords
                   WHERE (total_doc_cnt IS NULL)
                      OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours'))
                   ORDER BY total_search_cnt DESC
                   LIMIT ?`,
-            args: [Math.min(batchSize, 200)]
+            args: [Math.min(batchSize, 500)]
         });
 
         docsToFill = selectResult.rows.map(row => ({
