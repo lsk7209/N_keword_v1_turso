@@ -173,28 +173,33 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     let seedsData: SeedItem[] = [];
     try {
-        // 🚀 ZERO-READ CLAIM: UPDATE...RETURNING
-        const claimResult = await db.execute({
-            sql: `UPDATE keywords 
-                  SET is_expanded = 2, updated_at = ?
-                  WHERE id IN (
-                      SELECT id FROM keywords
-                      WHERE (is_expanded = 0)
-                         OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours'))
-                      ORDER BY total_search_cnt DESC
-                      LIMIT ?
-                  )
-                  RETURNING id, keyword, total_search_cnt`,
-            args: [getCurrentTimestamp(), Math.min(batchSize, 2000)]
+        // ⚠️ ROLLBACK: UPDATE...RETURNING + 서브쿼리가 Turso에서 작동 안 함
+        // 안정적인 SELECT + UPDATE 패턴 사용
+        const selectResult = await db.execute({
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords
+                  WHERE (is_expanded = 0)
+                     OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours'))
+                  ORDER BY total_search_cnt DESC
+                  LIMIT ?`,
+            args: [Math.min(batchSize, 500)]
         });
 
-        seedsData = claimResult.rows.map(row => ({
+        seedsData = selectResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        console.log(`[Expand] 🎯 Zero-Read Claim: ${seedsData.length} seeds claimed via UPDATE...RETURNING`);
+        if (seedsData.length > 0) {
+            const ids = seedsData.map(s => s.id);
+            const placeholders = ids.map(() => '?').join(',');
+            await db.execute({
+                sql: `UPDATE keywords SET is_expanded = 2, updated_at = ? WHERE id IN (${placeholders})`,
+                args: [getCurrentTimestamp(), ...ids]
+            });
+        }
+
+        console.log(`[Expand] ✅ Claimed ${seedsData.length} seeds via SELECT+UPDATE`);
     } catch (err: any) {
         console.error('[Expand] Failed to claim seeds:', err.message);
         return null;
@@ -300,28 +305,32 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     let docsToFill: SeedItem[] = [];
     try {
-        // 🚀 ZERO-READ CLAIM: UPDATE...RETURNING
-        const claimResult = await db.execute({
-            sql: `UPDATE keywords 
-                  SET total_doc_cnt = -2, updated_at = ?
-                  WHERE id IN (
-                      SELECT id FROM keywords
-                      WHERE (total_doc_cnt IS NULL)
-                         OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours'))
-                      ORDER BY total_search_cnt DESC
-                      LIMIT ?
-                  )
-                  RETURNING id, keyword, total_search_cnt`,
-            args: [getCurrentTimestamp(), Math.min(batchSize, 2000)]
+        // ⚠️ ROLLBACK: SELECT + UPDATE 패턴 (Turso 호환)
+        const selectResult = await db.execute({
+            sql: `SELECT id, keyword, total_search_cnt FROM keywords
+                  WHERE (total_doc_cnt IS NULL)
+                     OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours'))
+                  ORDER BY total_search_cnt DESC
+                  LIMIT ?`,
+            args: [Math.min(batchSize, 500)]
         });
 
-        docsToFill = claimResult.rows.map(row => ({
+        docsToFill = selectResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        console.log(`[FillDocs] 🎯 Zero-Read Claim: ${docsToFill.length} keywords claimed via UPDATE...RETURNING`);
+        if (docsToFill.length > 0) {
+            const ids = docsToFill.map(d => d.id);
+            const placeholders = ids.map(() => '?').join(',');
+            await db.execute({
+                sql: `UPDATE keywords SET total_doc_cnt = -2, updated_at = ? WHERE id IN (${placeholders})`,
+                args: [getCurrentTimestamp(), ...ids]
+            });
+        }
+
+        console.log(`[FillDocs] ✅ Claimed ${docsToFill.length} keywords via SELECT+UPDATE`);
     } catch (err: any) {
         console.error('[FillDocs] Failed to claim keywords:', err.message);
         return null;
