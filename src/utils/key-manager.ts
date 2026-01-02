@@ -23,11 +23,12 @@ class KeyManager {
     private searchIndex = 0;
 
     constructor() {
-        this.loadKeys();
-        // Randomize start index to distribute load across stateless invocations
-        this.adIndex = Math.floor(Math.random() * this.adKeys.length);
-        if (this.searchKeys.length > 0) {
-            this.searchIndex = Math.floor(Math.random() * this.searchKeys.length);
+        // Delayed loading to support dotenv.config() in scripts
+    }
+
+    private ensureLoaded() {
+        if (this.adKeys.length === 0 && this.searchKeys.length === 0) {
+            this.loadKeys();
         }
     }
 
@@ -96,9 +97,18 @@ class KeyManager {
                 console.error("Failed to parse NAVER_SEARCH_KEYS", e);
             }
         }
+
+        // Randomize start index to distribute load
+        if (this.adKeys.length > 0) {
+            this.adIndex = Math.floor(Math.random() * this.adKeys.length);
+        }
+        if (this.searchKeys.length > 0) {
+            this.searchIndex = Math.floor(Math.random() * this.searchKeys.length);
+        }
     }
 
     public getNextKey(type: KeyType): KeyConfig {
+        this.ensureLoaded();
         const keys = type === 'AD' ? this.adKeys : this.searchKeys;
         if (keys.length === 0) throw new Error(`No ${type} keys available`);
 
@@ -137,6 +147,7 @@ class KeyManager {
     }
 
     public getStatusSummary(type: KeyType) {
+        this.ensureLoaded();
         const keys = type === 'AD' ? this.adKeys : this.searchKeys;
         const now = Date.now();
         const total = keys.length;
@@ -155,6 +166,7 @@ class KeyManager {
     }
 
     public getKeyCount(type: KeyType): number {
+        this.ensureLoaded();
         return type === 'AD' ? this.adKeys.length : this.searchKeys.length;
     }
 }

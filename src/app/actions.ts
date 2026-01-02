@@ -93,13 +93,7 @@ export async function manualMining(keywords: string[]) {
                     stats: { processed: result.processed, saved: result.saved, inserted: insertedCount }
                 });
             } catch (e: any) {
-                console.error(`[manualMining] ❌ Error processing "${seed}":`, {
-                    message: e.message,
-                    stack: e.stack,
-                    name: e.name,
-                    code: e.code,
-                    cause: e.cause
-                });
+                console.error(`[manualMining] ❌ Error processing "${seed}":`, e);
                 results.push({
                     seed,
                     success: false,
