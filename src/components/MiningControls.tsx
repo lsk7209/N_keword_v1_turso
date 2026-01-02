@@ -18,14 +18,14 @@ export default function MiningControls() {
                 console.log('[MiningControls] Checking mode from DB...');
                 const result = await getMiningMode();
                 console.log('[MiningControls] Mode check result:', result);
-                
+
                 if (result.success) {
                     setIsTurbo(prevTurbo => {
                         const wasTurbo = prevTurbo;
                         const isNowTurbo = result.mode === 'TURBO';
-                        
+
                         console.log('[MiningControls] Mode state update:', { wasTurbo, isNowTurbo, isInitial: isInitialLoadRef.current });
-                        
+
                         // 초기 로드 시 또는 상태 변경 감지
                         if (isInitialLoadRef.current) {
                             if (isNowTurbo) {
@@ -46,7 +46,7 @@ export default function MiningControls() {
                                 setLogs(prev => [`[${time}] ⚠️ 터보 모드가 자동으로 중지되었습니다. (API 키 소진 또는 오류)`, ...prev].slice(0, 50));
                             }
                         }
-                        
+
                         return isNowTurbo;
                     });
                 } else {
@@ -59,7 +59,7 @@ export default function MiningControls() {
                 setIsTurbo(false);
             }
         };
-        
+
         // 초기 로드 시 즉시 확인
         checkMode();
 
@@ -85,11 +85,13 @@ export default function MiningControls() {
             await setMiningMode('NORMAL'); // Ensure turbo is off
             const result = await triggerMining();
 
-            if (result.success) {
+            if (result.success && 'expand' in result) {
                 const expandInfo = result.expand ? `확장 ${result.expand.totalSaved}개` : '확장 없음';
                 addLog(`✅ 성공: ${expandInfo}`);
+            } else if (!result.success) {
+                addLog(`❌ 실패: ${result.error || '알 수 없는 오류'}`);
             } else {
-                addLog(`❌ 실패: ${result.error}`);
+                addLog(`✅ 배치 완료`);
             }
         } catch (e: any) {
             addLog(`❌ 오류: ${e.message}`);

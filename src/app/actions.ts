@@ -68,8 +68,8 @@ export async function manualMining(keywords: string[]) {
 
                     const allItems = [seedItem, ...result.items];
                     const insertResult = await bulkDeferredInsert(allItems);
-                    insertedCount = insertResult.inserted;
-                    console.log(`[manualMining] 💾 Saved/Updated ${insertedCount} keywords to DB for seed "${seed}"`);
+                    insertedCount = insertResult.inserted + insertResult.updated;
+                    console.log(`[manualMining] 💾 Saved ${insertResult.inserted} new, updated ${insertResult.updated} keywords for seed "${seed}"`);
                 }
 
                 // 시드 키워드 상태 명시적 업데이트 (is_expanded = 1)
