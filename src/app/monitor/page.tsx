@@ -63,70 +63,90 @@ export default async function MonitorPage() {
         const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
         // 1. Fetch Stats in parallel
+        // 1. Fetch Stats efficiently to minimize Turso Reads
         const [
-            totalResult,
-            analyzedResult,
-            expandedResult,
-            platinumResult,
-            goldResult,
-            newKeywords24hResult,
-            docsFilled24hResult,
-            logsResult,
-            seedTotalResult,
-            seedPendingResult,
-            seedExpandedResult,
-            seedProcessingResult,
-            recentSeedsResult,
-            silverResult,
-            bronzeResult
+            mainStatsResult,
+            tierStatsResult,
+            seedStatsResult,
+            newStatsResult,
+            recentLogsResult,
+            recentSeedsResult
         ] = await Promise.all([
-            db.execute('SELECT COUNT(*) as count FROM keywords'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt >= 0'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 1'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['PLATINUM']),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['GOLD']),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE created_at >= ?', [since24h]),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_doc_cnt >= 0 AND updated_at >= ?', [since24h]),
+            // Combine total, analyzed, and global expanded counts
+            db.execute(`
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN total_doc_cnt >= 0 THEN 1 ELSE 0 END) as analyzed,
+                    SUM(CASE WHEN is_expanded = 1 THEN 1 ELSE 0 END) as expanded
+                FROM keywords
+            `),
+            // Get all tier counts in one scan
+            db.execute('SELECT tier, COUNT(*) as count FROM keywords GROUP BY tier'),
+            // Get all seed status counts in one scan
+            db.execute(`
+                SELECT is_expanded, COUNT(*) as count 
+                FROM keywords 
+                WHERE total_search_cnt >= 100 
+                GROUP BY is_expanded
+            `),
+            // 24h stats
+            db.execute(`
+                SELECT 
+                    SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as new24h,
+                    SUM(CASE WHEN total_doc_cnt >= 0 AND updated_at >= ? THEN 1 ELSE 0 END) as docs24h
+                FROM keywords
+            `, [since24h, since24h]),
+            // Lists
             db.execute('SELECT * FROM keywords ORDER BY created_at DESC LIMIT 10'),
-            // 시드키워드 현황 (검색량 100 이상인 키워드 - 수집 기준과 동일)
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE total_search_cnt >= 100'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 0 AND total_search_cnt >= 100'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 1 AND total_search_cnt >= 100'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE is_expanded = 2 AND total_search_cnt >= 100'),
-            db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 100 ORDER BY total_search_cnt DESC LIMIT 20'),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['SILVER']),
-            db.execute('SELECT COUNT(*) as count FROM keywords WHERE tier = ?', ['BRONZE'])
+            db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 100 ORDER BY total_search_cnt DESC LIMIT 20')
         ]);
 
-        total = (totalResult.rows[0]?.count as number) || 0;
-        analyzed = (analyzedResult.rows[0]?.count as number) || 0;
-        expanded = (expandedResult.rows[0]?.count as number) || 0;
-        platinumCount = (platinumResult.rows[0]?.count as number) || 0;
-        goldCount = (goldResult.rows[0]?.count as number) || 0;
-        silverCount = (silverResult.rows[0]?.count as number) || 0;
-        bronzeCount = (bronzeResult.rows[0]?.count as number) || 0;
-        newKeywords24h = (newKeywords24hResult.rows[0]?.count as number) || 0;
-        docsFilled24h = (docsFilled24hResult.rows[0]?.count as number) || 0;
-        recentLogs = logsResult.rows.map(row => ({
+        // Parse Results
+        total = (mainStatsResult.rows[0]?.total as number) || 0;
+        analyzed = (mainStatsResult.rows[0]?.analyzed as number) || 0;
+        expanded = (mainStatsResult.rows[0]?.expanded as number) || 0;
+
+        // Tiers
+        tierStatsResult.rows.forEach(row => {
+            const t = String(row.tier);
+            const c = Number(row.count);
+            if (t === 'PLATINUM') platinumCount = c;
+            else if (t === 'GOLD') goldCount = c;
+            else if (t === 'SILVER') silverCount = c;
+            else if (t === 'BRONZE') bronzeCount = c;
+        });
+
+        // Seeds
+        seedKeywordsTotal = seedStatsResult.rows.reduce((sum, row) => sum + Number(row.count), 0);
+        seedStatsResult.rows.forEach(row => {
+            const s = Number(row.is_expanded);
+            const c = Number(row.count);
+            if (s === 0) seedKeywordsPending = c;
+            else if (s === 1) seedKeywordsExpanded = c;
+            else if (s === 2) seedKeywordsProcessing = c;
+        });
+
+        // 24h
+        newKeywords24h = (newStatsResult.rows[0]?.new24h as number) || 0;
+        docsFilled24h = (newStatsResult.rows[0]?.docs24h as number) || 0;
+
+        // Logs
+        recentLogs = recentLogsResult.rows.map(row => ({
             id: row.id,
             keyword: row.keyword,
             total_search_cnt: row.total_search_cnt,
             tier: row.tier,
             created_at: row.created_at
         }));
-        pendingDocs = Math.max(total - analyzed, 0);
 
-        // 시드키워드 현황
-        seedKeywordsTotal = (seedTotalResult.rows[0]?.count as number) || 0;
-        seedKeywordsPending = (seedPendingResult.rows[0]?.count as number) || 0;
-        seedKeywordsExpanded = (seedExpandedResult.rows[0]?.count as number) || 0;
-        seedKeywordsProcessing = (seedProcessingResult.rows[0]?.count as number) || 0;
         recentSeeds = recentSeedsResult.rows.map(row => ({
             keyword: row.keyword,
             total_search_cnt: row.total_search_cnt,
             is_expanded: row.is_expanded,
             updated_at: row.updated_at
         }));
+
+        pendingDocs = Math.max(total - analyzed, 0);
 
     } catch (e: any) {
         console.error('Monitor Page Error:', e);
