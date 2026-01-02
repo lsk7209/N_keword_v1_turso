@@ -16,7 +16,6 @@ async function testInsert() {
         total_search_cnt: 100,
         pc_search_cnt: 50,
         mo_search_cnt: 50,
-        manual_doc_cnt: 0, // optional
         total_doc_cnt: 0,
         blog_doc_cnt: 0,
         cafe_doc_cnt: 0,
