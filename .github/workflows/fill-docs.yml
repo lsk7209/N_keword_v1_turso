@@ -1,12 +1,11 @@
 name: 📄 문서수 수집 크론 (Document Count Collection)
 
 on:
-  # ⚠️ TEMPORARILY DISABLED - Search API keys exhausted
-  # schedule:
-  #   # 🚀 초고성능: 5분마다 실행 (miner.yml과 2분 30초 오프셋)
-  #   # miner.yml: */5 * * * * (0, 5, 10, 15, ...)
-  #   # fill-docs.yml: 2-59/5 * * * * (2, 7, 12, 17, ...) - 2분 오프셋으로 충돌 방지
-  #   - cron: '2-59/5 * * * *'
+  schedule:
+    # ✅ 안정성 우선: 15분마다 실행 (Search API 복구 고려)
+    # miner.yml: */10 * * * * (0, 10, 20, 30, ...)
+    # fill-docs.yml: */15 * * * * (0, 15, 30, 45) - 충분한 간격
+    - cron: '*/15 * * * *'
   workflow_dispatch: # 수동 실행 가능
 
 jobs:
@@ -60,12 +59,12 @@ jobs:
           INTERVAL_SECONDS=10  # 10초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 🚀 안정적이고 검증된 파라미터 (Vercel 타임아웃 방지)
-          # - fillBatch=500 => 500 키워드/실행 (안정성 검증됨)
-          # - fillConcurrency=100 => 100 동시성 (SEARCH 30개 × 3-4배)
+          # ✅ 안정성 최우선 파라미터 (점진적 증가 계획)
+          # - fillBatch=100 => 100 키워드/실행 (부담 최소화)
+          # - fillConcurrency=10 => 10 동시성 (SEARCH 30개의 1/3만 사용)
           # - maxRunMs=55000 => Vercel 60초 제한 고려
-          # 타임아웃 없이 안정적으로 처리 가능한 검증된 값
-          QUERY="task=fill_docs&fillBatch=500&fillConcurrency=100&maxRunMs=55000"
+          # 80%+ 성공률 목표, 안정화 후 점진적 증가
+          QUERY="task=fill_docs&fillBatch=100&fillConcurrency=10&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
