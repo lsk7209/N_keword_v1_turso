@@ -86,11 +86,12 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const searchKeyCount = keyManager.getKeyCount('SEARCH');
     const adKeyCount = keyManager.getKeyCount('AD');
 
-    // 🚀 획기적 최적화: API 키 수를 최대한 활용
-    const baseExpandConcurrency = Math.min(100, Math.max(20, adKeyCount * 5));
+    // 🚀 AD API 최적화: 14개 키 기준 동시성 150은 너무 높음 (키당 11개 워커).
+    // 네이버 WAF가 공격으로 인식하므로 키당 3개(총 42개) 정도로 제한하는 것이 실제 수집 효율이 훨씬 높음.
+    const baseExpandConcurrency = Math.min(42, Math.max(14, adKeyCount * 3));
     const baseFillConcurrency = Math.min(500, Math.max(100, searchKeyCount * 15));
 
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 200, baseExpandConcurrency);
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 60, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 500, baseFillConcurrency);
 
     const expandBatchBase = Math.max(100, EXPAND_CONCURRENCY * 10);
