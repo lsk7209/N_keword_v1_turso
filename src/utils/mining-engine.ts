@@ -301,105 +301,109 @@ export async function processSeedKeyword(
     };
 }
 
+import { keywordCache } from './keyword-cache';
 
-// 🚀💰 Turso 비용 최적화: Bloom Filter + 중복 필터링
-export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserted: number }> {
-    if (!keywords.length) return { inserted: 0 };
+// 🚀💰 Turso 비용 최적화: Zero-Read Strategy
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 기존: SELECT로 중복 체크 → Row Reads 폭증
+// 신규: In-Memory Cache로 체크 → Row Reads: 0
+// 신규: ON CONFLICT DO UPDATE → 쓰기 쿼터 활용
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserted: number; updated: number }> {
+    if (!keywords.length) return { inserted: 0, updated: 0 };
 
     const db = getTursoClient();
-    const bloom = await BloomManager.getFilter();
+    await keywordCache.init(); // Ensure cache is ready
 
-    // 1️⃣ 로컬 중복 제거
+    // 1️⃣ 로컬 중복 제거 (동일 배치 내)
     const uniqueKeywords = Array.from(new Map(keywords.map(k => [k.keyword, k])).values());
 
-    // 2️⃣ Bloom Filter 1차 선별 (Turso Row Reads 90% 절감의 핵심)
-    const definitelyNew: Keyword[] = [];
-    const maybeExisting: Keyword[] = [];
+    // 2️⃣ 메모리 캐시로 신규/기존 분류 (DB 접근 없음!)
+    const newKeywords: Keyword[] = [];
+    const existingKeywords: Keyword[] = [];
 
     uniqueKeywords.forEach(k => {
-        if (bloom.maybeExists(k.keyword)) {
-            maybeExisting.push(k);
+        if (keywordCache.has(k.keyword)) {
+            existingKeywords.push(k);
         } else {
-            definitelyNew.push(k);
+            newKeywords.push(k);
         }
     });
 
-    console.log(`[MiningEngine] 💰 Bloom Filter: ${uniqueKeywords.length} items -> Definitely New: ${definitelyNew.length}, Needs DB Check: ${maybeExisting.length}`);
+    console.log(`[MiningEngine] 💰 Zero-Read Filter: ${uniqueKeywords.length} items -> New: ${newKeywords.length}, Existing: ${existingKeywords.length}`);
 
-    // 3️⃣ 'Maybe' 항목들만 DB에서 실제 중복 확인 (Index-based READ)
-    const existingKeywords = new Set<string>();
-    if (maybeExisting.length > 0) {
-        const keywordList = maybeExisting.map(k => k.keyword);
-        const CHUNK_SIZE = 500;
-
-        for (let i = 0; i < keywordList.length; i += CHUNK_SIZE) {
-            const chunk = keywordList.slice(i, i + CHUNK_SIZE);
-            const placeholders = chunk.map(() => '?').join(',');
-
-            try {
-                const result = await db.execute({
-                    sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
-                    args: chunk
-                });
-                result.rows.forEach(row => existingKeywords.add(row.keyword as string));
-            } catch (e) {
-                console.error('[MiningEngine] DB Deduplication check failed:', e);
-            }
-        }
+    if (uniqueKeywords.length === 0) {
+        return { inserted: 0, updated: 0 };
     }
 
-    // 4️⃣ 최종 신규 키워드 합치기
-    const actualMaybeNew = maybeExisting.filter(k => !existingKeywords.has(k.keyword));
-    const allNewKeywords = [...definitelyNew, ...actualMaybeNew];
-
-    if (allNewKeywords.length === 0) {
-        return { inserted: 0 };
-    }
-
-    // 5️⃣ Bloom Filter 업데이트 (새로 추가될 키워드들 반영)
-    allNewKeywords.forEach(k => bloom.add(k.keyword));
-    // 배치가 끝나기 전에 BloomManager.saveFilter(bloom)이 호출되어야 함 (batch-runner에서 처리 권장)
-    // 여기서는 안전을 위해 일단 로컬 업데이트만 수행
-
-    // 6️⃣ 신규 키워드만 INSERT (Row Writes 최소화)
-    const statements = allNewKeywords.map(kw => ({
-        sql: `INSERT OR IGNORE INTO keywords (
-            keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-            pc_click_cnt, mo_click_cnt, click_cnt, pc_ctr, mo_ctr, total_ctr,
-            comp_idx, pl_avg_depth, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-            web_doc_cnt, news_doc_cnt, golden_ratio, tier, is_expanded,
-            created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-            kw.keyword, kw.total_search_cnt, kw.pc_search_cnt || 0, kw.mo_search_cnt || 0,
-            kw.pc_click_cnt || 0, kw.mo_click_cnt || 0, kw.click_cnt || 0,
-            kw.pc_ctr || 0, kw.mo_ctr || 0, kw.total_ctr || 0,
-            kw.comp_idx || 0, kw.pl_avg_depth || 0,
-            kw.total_doc_cnt || null, kw.blog_doc_cnt || 0, kw.cafe_doc_cnt || 0,
-            kw.web_doc_cnt || 0, kw.news_doc_cnt || 0,
-            kw.golden_ratio || 0, kw.tier || 'UNRANKED', kw.is_expanded ? 1 : 0,
-            getCurrentTimestamp(), getCurrentTimestamp()
-        ]
-    }));
-
-    // Turso batch size limit (v1: 100 statements per request is safer, but libsql supports more)
-    // We already chunk large insertions elsewhere if needed, but here we use statements directly.
-    // For extreme reliability, let's chunk statements to 100.
-    const STATEMENT_CHUNK = 100;
+    // 3️⃣ Bulk Upsert: ON CONFLICT DO UPDATE 패턴
+    // - 신규: INSERT
+    // - 기존: UPDATE (문서수, 업데이트 시간 갱신)
+    const BATCH_SIZE = 500; // Turso 안정성을 위한 청크
     let totalInserted = 0;
-    for (let i = 0; i < statements.length; i += STATEMENT_CHUNK) {
-        const chunk = statements.slice(i, i + STATEMENT_CHUNK);
+    let totalUpdated = 0;
+
+    for (let i = 0; i < uniqueKeywords.length; i += BATCH_SIZE) {
+        const batch = uniqueKeywords.slice(i, i + BATCH_SIZE);
+
+        // ON CONFLICT 구문을 위한 prepared statements
+        const statements = batch.map(kw => ({
+            sql: `INSERT INTO keywords (
+                keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                pc_click_cnt, mo_click_cnt, click_cnt, pc_ctr, mo_ctr, total_ctr,
+                comp_idx, pl_avg_depth, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                web_doc_cnt, news_doc_cnt, golden_ratio, tier, is_expanded,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(keyword) DO UPDATE SET
+                total_search_cnt = excluded.total_search_cnt,
+                pc_search_cnt = excluded.pc_search_cnt,
+                mo_search_cnt = excluded.mo_search_cnt,
+                pc_click_cnt = excluded.pc_click_cnt,
+                mo_click_cnt = excluded.mo_click_cnt,
+                click_cnt = excluded.click_cnt,
+                pc_ctr = excluded.pc_ctr,
+                mo_ctr = excluded.mo_ctr,
+                total_ctr = excluded.total_ctr,
+                comp_idx = excluded.comp_idx,
+                pl_avg_depth = excluded.pl_avg_depth,
+                total_doc_cnt = COALESCE(excluded.total_doc_cnt, total_doc_cnt),
+                blog_doc_cnt = COALESCE(excluded.blog_doc_cnt, blog_doc_cnt),
+                cafe_doc_cnt = COALESCE(excluded.cafe_doc_cnt, cafe_doc_cnt),
+                web_doc_cnt = COALESCE(excluded.web_doc_cnt, web_doc_cnt),
+                news_doc_cnt = COALESCE(excluded.news_doc_cnt, news_doc_cnt),
+                golden_ratio = COALESCE(excluded.golden_ratio, golden_ratio),
+                tier = COALESCE(excluded.tier, tier),
+                updated_at = excluded.updated_at
+            WHERE excluded.total_search_cnt > 0;`,
+            args: [
+                kw.keyword, kw.total_search_cnt, kw.pc_search_cnt || 0, kw.mo_search_cnt || 0,
+                kw.pc_click_cnt || 0, kw.mo_click_cnt || 0, kw.click_cnt || 0,
+                kw.pc_ctr || 0, kw.mo_ctr || 0, kw.total_ctr || 0,
+                kw.comp_idx || 0, kw.pl_avg_depth || 0,
+                kw.total_doc_cnt || null, kw.blog_doc_cnt || 0, kw.cafe_doc_cnt || 0,
+                kw.web_doc_cnt || 0, kw.news_doc_cnt || 0,
+                kw.golden_ratio || 0, kw.tier || 'UNRANKED', kw.is_expanded ? 1 : 0,
+                getCurrentTimestamp(), getCurrentTimestamp()
+            ]
+        }));
+
         try {
-            await db.batch(chunk);
-            totalInserted += chunk.length;
+            await db.batch(statements);
+
+            // 4️⃣ 캐시 업데이트: 신규 키워드만 추가
+            const newInBatch = batch.filter(k => !keywordCache.has(k.keyword));
+            keywordCache.addBatch(newInBatch.map(k => k.keyword));
+
+            totalInserted += newInBatch.length;
+            totalUpdated += (batch.length - newInBatch.length);
+
+            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: +${newInBatch.length} new, ~${batch.length - newInBatch.length} updated`);
         } catch (e: any) {
-            console.error(`[MiningEngine] Batch insert failed for chunk ${i}:`, e.message);
+            console.error(`[MiningEngine] Batch upsert failed at offset ${i}:`, e.message);
         }
     }
 
-    // 블룸필터 영속화 (매 배치 삽입 후 저장)
-    await BloomManager.saveFilter(bloom);
-
-    console.log(`[MiningEngine] ⚡ Optimized Insert: ${totalInserted} new keywords (Row Reads saved: ${uniqueKeywords.length - maybeExisting.length})`);
-    return { inserted: totalInserted };
+    console.log(`[MiningEngine] 🎯 Zero-Read Upsert Complete: ${totalInserted} inserted, ${totalUpdated} updated (Row Reads: 0)`);
+    return { inserted: totalInserted, updated: totalUpdated };
 }
