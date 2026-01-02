@@ -86,13 +86,14 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const searchKeyCount = keyManager.getKeyCount('SEARCH');
     const adKeyCount = keyManager.getKeyCount('AD');
 
-    // 🚀 AD API 최적화: 14개 키 기준 동시성 150은 너무 높음 (키당 11개 워커).
-    // 네이버 WAF가 공격으로 인식하므로 키당 3개(총 42개) 정도로 제한하는 것이 실제 수집 효율이 훨씬 높음.
-    const baseExpandConcurrency = Math.min(42, Math.max(14, adKeyCount * 3));
-    const baseFillConcurrency = Math.min(500, Math.max(100, searchKeyCount * 15));
+    // 🚀 AD API 최적화: Zero-Read가 적용되었으므로 공격적 확장 가능
+    // 14개 키 기준 * 15 = 210 concurrency
+    const baseExpandConcurrency = Math.min(250, Math.max(14, adKeyCount * 15));
+    // Search API: 30개 키 * 25 = 750 concurrency
+    const baseFillConcurrency = Math.min(1000, Math.max(100, searchKeyCount * 25));
 
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 60, baseExpandConcurrency);
-    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 500, baseFillConcurrency);
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 250, baseExpandConcurrency);
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 1000, baseFillConcurrency);
 
     const expandBatchBase = Math.max(100, EXPAND_CONCURRENCY * 10);
     const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5);
@@ -184,7 +185,7 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
                       LIMIT ?
                   )
                   RETURNING id, keyword, total_search_cnt`,
-            args: [getCurrentTimestamp(), Math.min(batchSize, 500)]
+            args: [getCurrentTimestamp(), Math.min(batchSize, 2000)]
         });
 
         seedsData = claimResult.rows.map(row => ({
@@ -311,7 +312,7 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
                       LIMIT ?
                   )
                   RETURNING id, keyword, total_search_cnt`,
-            args: [getCurrentTimestamp(), Math.min(batchSize, 500)]
+            args: [getCurrentTimestamp(), Math.min(batchSize, 2000)]
         });
 
         docsToFill = claimResult.rows.map(row => ({

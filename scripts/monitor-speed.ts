@@ -14,9 +14,9 @@ async function monitorSpeed() {
     const c1 = Number(r1.rows[0].total);
     console.log(`⏱️  Start Count: ${c1.toLocaleString()} keywords`);
 
-    // Wait 60 seconds
-    console.log('⏳ Waiting 60 seconds to measure throughput...');
-    await new Promise(resolve => setTimeout(resolve, 60000));
+    // Wait 120 seconds (Deployment time buffer)
+    console.log('⏳ Waiting 120 seconds to measure throughput across deployment...');
+    await new Promise(resolve => setTimeout(resolve, 120000));
 
     // 2. Snapshot 2
     const r2 = await db.execute("SELECT COUNT(*) as total FROM keywords");
