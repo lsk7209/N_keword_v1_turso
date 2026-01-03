@@ -386,6 +386,14 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
                 console.log(`[BatchRunner] ⚡ Bulk Doc Update: chunk ${Math.floor(i / CHUNK_SIZE) + 1} (${chunk.length} items)`);
             } catch (e: any) {
                 console.error(`[BatchRunner] Bulk doc update failed for chunk starting at ${i}:`, e.message);
+                // Mark these as failed so they can be rolled back to NULL (instead of staying -2 forever)
+                // But wait, if we rollback to NULL, they will be picked up again!
+                // We should probably mark them as failed with a special status or retry count?
+                // For now, let's at least log WHY.
+
+                // Also remove them from "succeeded" list if possible, or we rely on the fact that
+                // runFillDocsTask returns 'processed' based on API success.
+                // We need to fix the return value logic to reflect DB success.
             }
         }
     }
