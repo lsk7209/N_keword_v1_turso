@@ -4,7 +4,7 @@ on:
   schedule:
     # 🚀 안정적인 주기: 10분마다 실행 (각 실행이 4-5분 소요)
     # GitHub Actions 크론의 한계를 고려하여 여유있게 설정
-    - cron: '*/10 * * * *'
+    - cron: '30 0,12 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:

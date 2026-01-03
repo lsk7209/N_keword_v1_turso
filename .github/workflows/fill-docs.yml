@@ -55,7 +55,7 @@ jobs:
           # - 실제 (중복/실패 고려): 25만~35만개/일
           # ═══════════════════════════════════════════════════════════════════════
           
-          RUN_FOR_SECONDS=210  # 3.5분간 실행
+          RUN_FOR_SECONDS=60   # 1분간 실행 (쓰기 절약)
           INTERVAL_SECONDS=5   # 5초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
@@ -64,7 +64,7 @@ jobs:
           # - fillConcurrency=10 => 10 동시성 (SEARCH 30개의 1/3만 사용)
           # - maxRunMs=55000 => Vercel 60초 제한 고려
           # 80%+ 성공률 목표, 안정화 후 점진적 증가
-          QUERY="task=fill_docs&fillBatch=200&fillConcurrency=25&maxRunMs=55000"
+          QUERY="task=fill_docs&fillBatch=150&fillConcurrency=25&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0

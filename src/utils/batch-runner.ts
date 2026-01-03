@@ -181,7 +181,7 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
                      OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours'))
                   ORDER BY total_search_cnt DESC
                   LIMIT ?`,
-            args: [Math.min(batchSize, 500)]
+            args: [Math.min(batchSize, 1000)]
         });
 
         seedsData = selectResult.rows.map(row => ({
@@ -312,7 +312,7 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
                      OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours'))
                   ORDER BY total_search_cnt DESC
                   LIMIT ?`,
-            args: [Math.min(batchSize, 500)]
+            args: [Math.min(batchSize, 1000)]
         });
 
         docsToFill = selectResult.rows.map(row => ({
