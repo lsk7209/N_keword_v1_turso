@@ -14,6 +14,7 @@ import { BloomFilter } from './bloom-filter';
 import { BloomManager } from './bloom-manager';
 
 export interface Keyword {
+    id?: string;
     keyword: string;
     originalKeyword?: string;
     total_search_cnt: number;
@@ -317,51 +318,52 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
     // 1️⃣ 로컬 중복 제거 (동일 배치 내만 - 메모리 연산)
     const uniqueKeywords = Array.from(new Map(keywords.map(k => [k.keyword, k])).values());
 
-    console.log(`[MiningEngine] 🎯 Pure Write-Only: ${uniqueKeywords.length} keywords (NO READS!)`);
+    // 🚀 SAVING WRITES: Select existing keywords first (Reads are cheap - 1B limit)
+    // Only send the ones that don't exist to minimize "Rows Written" (25M limit)
+    let trulyNewKeywords: Keyword[] = [];
+    try {
+        const batchKeys = uniqueKeywords.map(k => k.keyword);
+        const CHUNK_SIZE = 100;
+        const existingSet = new Set<string>();
 
-    // 🔍 DEBUG: 샘플링 검사 (처음 3개만) - 진짜로 다 중복인지 확인
-    if (uniqueKeywords.length > 0) {
-        try {
-            const samples = uniqueKeywords.slice(0, 3).map(k => k.keyword);
-            const placeholders = samples.map(() => '?').join(',');
-            const check = await db.execute({
+        for (let i = 0; i < batchKeys.length; i += CHUNK_SIZE) {
+            const chunk = batchKeys.slice(i, i + CHUNK_SIZE);
+            const placeholders = chunk.map(() => '?').join(',');
+            const res = await db.execute({
                 sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
-                args: samples
+                args: chunk
             });
-            const existing = new Set(check.rows.map(r => r.keyword));
-
-            console.log('[MiningEngine] 🕵️ Sample Check (Top 3):');
-            samples.forEach(k => {
-                const exists = existing.has(k);
-                console.log(`  - "${k}": ${exists ? 'EXISTS (Update)' : 'NEW (Insert)'}`);
-            });
-        } catch (e) {
-            console.error('[MiningEngine] Sample check failed (ignoring)', e);
+            res.rows.forEach(r => existingSet.add(String(r.keyword)));
         }
+
+        trulyNewKeywords = uniqueKeywords.filter(k => !existingSet.has(k.keyword));
+        console.log(`[MiningEngine] 🛡️ Write-Optimizer: ${uniqueKeywords.length} candidates -> ${trulyNewKeywords.length} truly new (Skipped ${uniqueKeywords.length - trulyNewKeywords.length} existing)`);
+    } catch (e) {
+        console.warn('[MiningEngine] Pre-check failed, falling back to all upsert:', e);
+        trulyNewKeywords = uniqueKeywords;
     }
 
-    if (uniqueKeywords.length === 0) {
+    if (trulyNewKeywords.length === 0) {
+        console.log('[MiningEngine] 💨 No new keywords to insert. Saving 0 writes.');
         return { inserted: 0, updated: 0 };
     }
 
-    // 2️⃣ ON CONFLICT DO UPDATE (모든 키워드에 적용 - 중복 체크 불필요!)
-    // - Definitely New: INSERT
-    // - Maybe Existing: INSERT or UPDATE (ON CONFLICT 자동 처리)
+    // 2️⃣ Bulk Insert Truly New Keywords
     const BATCH_SIZE = 500;
     let totalInserted = 0;
     let totalUpdated = 0;
 
-    for (let i = 0; i < uniqueKeywords.length; i += BATCH_SIZE) {
-        const batch = uniqueKeywords.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < trulyNewKeywords.length; i += BATCH_SIZE) {
+        const batch = trulyNewKeywords.slice(i, i + BATCH_SIZE);
 
         const statements = batch.map(kw => ({
             sql: `INSERT INTO keywords (
-                keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
                 pc_click_cnt, mo_click_cnt, click_cnt, pc_ctr, mo_ctr, total_ctr,
                 comp_idx, pl_avg_depth, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
                 web_doc_cnt, news_doc_cnt, golden_ratio, tier, is_expanded,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(keyword) DO UPDATE SET
                 total_search_cnt = excluded.total_search_cnt,
                 pc_search_cnt = excluded.pc_search_cnt,
@@ -373,6 +375,7 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
                 news_doc_cnt = COALESCE(excluded.news_doc_cnt, news_doc_cnt),
                 updated_at = excluded.updated_at;`,
             args: [
+                kw.id || generateUUID(),
                 kw.keyword, kw.total_search_cnt, kw.pc_search_cnt || 0, kw.mo_search_cnt || 0,
                 kw.pc_click_cnt || 0, kw.mo_click_cnt || 0, kw.click_cnt || 0,
                 kw.pc_ctr || 0, kw.mo_ctr || 0, kw.total_ctr || 0,

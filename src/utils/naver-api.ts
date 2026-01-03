@@ -47,7 +47,14 @@ export async function fetchRelatedKeywords(seed: string) {
             };
             if (customerId) headers['X-Customer'] = customerId;
 
-            const response = await fetch(url, { headers });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            const response = await fetch(url, {
+                headers,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
 
             if (response.status === 429) {
                 keyManager.report429(key.id, 'AD');
@@ -64,8 +71,13 @@ export async function fetchRelatedKeywords(seed: string) {
             const data = await response.json();
             return data.keywordList || [];
 
-        } catch (e) {
+        } catch (e: any) {
             lastError = e;
+            if (e.name === 'AbortError') {
+                console.warn(`[AdAPI] Timeout for ${seed}, retrying...`);
+                // Immediate retry for timeout
+                continue;
+            }
             if (e instanceof Error && e.message.includes('No AD keys')) throw e;
             if (i < 2) await sleep(300 + Math.random() * 200);
         }

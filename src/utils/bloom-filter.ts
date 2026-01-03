@@ -50,6 +50,11 @@ export class BloomFilter {
         });
     }
 
+    // Alias for maybeExists
+    has(str: string): boolean {
+        return this.maybeExists(str);
+    }
+
     export(): Uint8Array {
         return this.buffer;
     }
