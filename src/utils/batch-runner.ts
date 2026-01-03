@@ -178,7 +178,6 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
         const selectResult = await db.execute({
             sql: `SELECT id, keyword, total_search_cnt FROM keywords
                   WHERE (is_expanded = 0)
-                     OR (is_expanded = 2 AND updated_at < datetime('now', '-2 hours'))
                   ORDER BY total_search_cnt DESC
                   LIMIT ?`,
             args: [Math.min(batchSize, 1000)]
@@ -190,16 +189,7 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        if (seedsData.length > 0) {
-            const ids = seedsData.map(s => s.id);
-            const placeholders = ids.map(() => '?').join(',');
-            await db.execute({
-                sql: `UPDATE keywords SET is_expanded = 2, updated_at = ? WHERE id IN (${placeholders})`,
-                args: [getCurrentTimestamp(), ...ids]
-            });
-        }
-
-        console.log(`[Expand] ✅ Claimed ${seedsData.length} seeds via SELECT+UPDATE`);
+        console.log(`[Expand] ✅ Fetched ${seedsData.length} seeds (No-Write Claim)`);
     } catch (err: any) {
         console.error('[Expand] Failed to claim seeds:', err.message);
         return null;
@@ -309,7 +299,6 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
         const selectResult = await db.execute({
             sql: `SELECT id, keyword, total_search_cnt FROM keywords
                   WHERE (total_doc_cnt IS NULL)
-                     OR (total_doc_cnt = -2 AND updated_at < datetime('now', '-2 hours'))
                   ORDER BY total_search_cnt DESC
                   LIMIT ?`,
             args: [Math.min(batchSize, 1000)]
@@ -321,16 +310,7 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        if (docsToFill.length > 0) {
-            const ids = docsToFill.map(d => d.id);
-            const placeholders = ids.map(() => '?').join(',');
-            await db.execute({
-                sql: `UPDATE keywords SET total_doc_cnt = -2, updated_at = ? WHERE id IN (${placeholders})`,
-                args: [getCurrentTimestamp(), ...ids]
-            });
-        }
-
-        console.log(`[FillDocs] ✅ Claimed ${docsToFill.length} keywords via SELECT+UPDATE`);
+        console.log(`[FillDocs] ✅ Fetched ${docsToFill.length} keywords (No-Write Claim)`);
     } catch (err: any) {
         console.error('[FillDocs] Failed to claim keywords:', err.message);
         return null;

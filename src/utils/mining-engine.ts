@@ -13,6 +13,44 @@ import { isBlacklisted } from '@/utils/blacklist';
 import { BloomFilter } from './bloom-filter';
 import { BloomManager } from './bloom-manager';
 
+// 🚀 GLOBAL CACHE: To save writes across multiple batches in one request
+class KeywordCache {
+    private static instance: KeywordCache;
+    private existingKeywords: Set<string> = new Set();
+    private isLoaded: boolean = false;
+
+    public static getInstance(): KeywordCache {
+        if (!KeywordCache.instance) {
+            KeywordCache.instance = new KeywordCache();
+        }
+        return KeywordCache.instance;
+    }
+
+    public async loadAll(): Promise<void> {
+        if (this.isLoaded) return;
+        const db = getTursoClient();
+        console.log('[KeywordCache] 📥 Loading all existing keywords into memory...');
+        try {
+            // we only need the keyword column for deduplication
+            const res = await db.execute('SELECT keyword FROM keywords');
+            res.rows.forEach(r => this.existingKeywords.add(String(r.keyword)));
+            this.isLoaded = true;
+            console.log(`[KeywordCache] ✅ Loaded ${this.existingKeywords.size} keywords into memory.`);
+        } catch (e) {
+            console.error('[KeywordCache] ❌ Failed to load keywords:', e);
+        }
+    }
+
+    public has(keyword: string): boolean {
+        return this.existingKeywords.has(keyword);
+    }
+
+    public add(keyword: string): void {
+        this.existingKeywords.add(keyword);
+    }
+}
+const keywordCache = KeywordCache.getInstance();
+
 export interface Keyword {
     id?: string;
     keyword: string;
@@ -318,30 +356,11 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
     // 1️⃣ 로컬 중복 제거 (동일 배치 내만 - 메모리 연산)
     const uniqueKeywords = Array.from(new Map(keywords.map(k => [k.keyword, k])).values());
 
-    // 🚀 SAVING WRITES: Select existing keywords first (Reads are cheap - 1B limit)
-    // Only send the ones that don't exist to minimize "Rows Written" (25M limit)
-    let trulyNewKeywords: Keyword[] = [];
-    try {
-        const batchKeys = uniqueKeywords.map(k => k.keyword);
-        const CHUNK_SIZE = 100;
-        const existingSet = new Set<string>();
+    // 🚀 SAVING WRITES: Use In-Memory Cache for Pre-Filtering
+    await keywordCache.loadAll();
 
-        for (let i = 0; i < batchKeys.length; i += CHUNK_SIZE) {
-            const chunk = batchKeys.slice(i, i + CHUNK_SIZE);
-            const placeholders = chunk.map(() => '?').join(',');
-            const res = await db.execute({
-                sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
-                args: chunk
-            });
-            res.rows.forEach(r => existingSet.add(String(r.keyword)));
-        }
-
-        trulyNewKeywords = uniqueKeywords.filter(k => !existingSet.has(k.keyword));
-        console.log(`[MiningEngine] 🛡️ Write-Optimizer: ${uniqueKeywords.length} candidates -> ${trulyNewKeywords.length} truly new (Skipped ${uniqueKeywords.length - trulyNewKeywords.length} existing)`);
-    } catch (e) {
-        console.warn('[MiningEngine] Pre-check failed, falling back to all upsert:', e);
-        trulyNewKeywords = uniqueKeywords;
-    }
+    const trulyNewKeywords = uniqueKeywords.filter(k => !keywordCache.has(k.keyword));
+    console.log(`[MiningEngine] 🛡️ In-Memory Deduper: ${uniqueKeywords.length} candidates -> ${trulyNewKeywords.length} truly new (Skipped ${uniqueKeywords.length - trulyNewKeywords.length} existing)`);
 
     if (trulyNewKeywords.length === 0) {
         console.log('[MiningEngine] 💨 No new keywords to insert. Saving 0 writes.');
@@ -390,6 +409,8 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
         try {
             await db.batch(statements);
             totalInserted += batch.length;
+            // Update cache so subsequent batches in same session skip these
+            batch.forEach(k => keywordCache.add(k.keyword));
             console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} upserted`);
         } catch (e: any) {
             console.error(`[MiningEngine] Batch upsert failed at offset ${i}:`, e.message);

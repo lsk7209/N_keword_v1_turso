@@ -5,7 +5,7 @@ on:
     # ✅ 안정성 우선: 15분마다 실행 (Search API 복구 고려)
     # miner.yml: */10 * * * * (0, 10, 20, 30, ...)
     # fill-docs.yml: */15 * * * * (0, 15, 30, 45) - 충분한 간격
-    - cron: '*/10 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch: # 수동 실행 가능
 
 jobs:
@@ -55,8 +55,8 @@ jobs:
           # - 실제 (중복/실패 고려): 25만~35만개/일
           # ═══════════════════════════════════════════════════════════════════════
           
-          RUN_FOR_SECONDS=60   # 1분간 실행 (쓰기 절약)
-          INTERVAL_SECONDS=5   # 5초마다 API 호출
+          RUN_FOR_SECONDS=210  # 3.5분간 실행 (고성능 복구)
+          INTERVAL_SECONDS=10  # 10초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
           # ✅ 안정성 최우선 파라미터 (점진적 증가 계획)
@@ -64,7 +64,7 @@ jobs:
           # - fillConcurrency=10 => 10 동시성 (SEARCH 30개의 1/3만 사용)
           # - maxRunMs=55000 => Vercel 60초 제한 고려
           # 80%+ 성공률 목표, 안정화 후 점진적 증가
-          QUERY="task=fill_docs&fillBatch=150&fillConcurrency=25&maxRunMs=55000"
+          QUERY="task=fill_docs&fillBatch=300&fillConcurrency=50&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0

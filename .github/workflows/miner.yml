@@ -4,7 +4,7 @@ on:
   schedule:
     # 🚀 안정적인 주기: 10분마다 실행 (각 실행이 4-5분 소요)
     # GitHub Actions 크론의 한계를 고려하여 여유있게 설정
-    - cron: '30 0,12 * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -52,8 +52,8 @@ jobs:
           # - 중복 제거 후 실제 신규: 15만~25만개/일 예상
           # ═══════════════════════════════════════════════════════════════════════
           
-          RUN_FOR_SECONDS=240  # 4분간 루프 실행 (Write 제한에 맞춤)
-          INTERVAL_SECONDS=20  # 20초마다 API 호출 (Write 제한에 맞춤)
+          RUN_FOR_SECONDS=210  # 3.5분간 루프 실행
+          INTERVAL_SECONDS=10  # 10초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
           # 🚀💰 최종 최적화 파라미터 (API 키 최대 활용)
