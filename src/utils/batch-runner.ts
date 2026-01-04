@@ -90,7 +90,9 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     // 14개 키 기준 * 15 = 210 concurrency
     const baseExpandConcurrency = Math.min(250, Math.max(14, adKeyCount * 15));
     // Search API: 30개 키 * 25 = 750 concurrency
-    const baseFillConcurrency = Math.min(1000, Math.max(100, searchKeyCount * 25));
+    // 🚀 Stability: Don't force min 100 concurrency if we don't have enough keys.
+    // If we have 1 key, max 25 concurrency.
+    const baseFillConcurrency = Math.min(1000, Math.max(10, searchKeyCount * 25));
 
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 250, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 1000, baseFillConcurrency);
@@ -411,7 +413,7 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
         skipped: skipped.length,
         details: processedResults.map((r: any) => {
             if (r.status === 'fulfilled') return `${r.item.keyword}: ${r.counts.total}`;
-            if (r.status === 'rejected') return `${r.keyword || r.item?.keyword || 'unknown'}: ERROR`;
+            if (r.status === 'rejected') return `${r.keyword || r.item?.keyword || 'unknown'}: ERROR (${r.error})`;
             return `${r.item?.keyword || 'unknown'}: SKIPPED`;
         })
     };

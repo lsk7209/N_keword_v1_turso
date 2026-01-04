@@ -156,15 +156,17 @@ export async function fetchDocumentCount(keyword: string): Promise<DocCounts> {
                     throw fetchError;
                 }
 
-            } catch (e) {
+            } catch (e: any) {
                 lastErr = e;
+                // console.error(`[NaverAPI] Key ${key?.id?.slice(0,5)}... fail:`, e.message);
                 if (e instanceof Error && e.message.includes('No SEARCH keys')) throw e;
             }
         }
         // If all retries failed, return 0 instead of crashing the whole batch? 
         // Or throw? If we return 0, we might pollute DB with fake 0s. 
         // Throwing is safer for data integrity.
-        throw lastErr || new Error(`Failed to fetch ${type} count`);
+        const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+        throw new Error(`Failed to fetch ${type} count (after 3 retries): ${msg}`);
     };
 
     // 🚀 OPTIMIZATION: 'news' fetch restored as per user request
