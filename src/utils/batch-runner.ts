@@ -90,9 +90,9 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     // 14개 키 기준 * 15 = 210 concurrency
     const baseExpandConcurrency = Math.min(250, Math.max(14, adKeyCount * 15));
     // Search API: 30개 키 * 25 = 750 concurrency
-    // 🚀 Stability: Don't force min 100 concurrency if we don't have enough keys.
-    // If we have 1 key, max 25 concurrency.
-    const baseFillConcurrency = Math.min(1000, Math.max(10, searchKeyCount * 25));
+    // 🚀 Stability: Use 2.5x multiplier (conservative) to stay under rate limits (10 req/s per key)
+    // 30 keys -> 75 concurrency.
+    const baseFillConcurrency = Math.min(1000, Math.max(10, Math.floor(searchKeyCount * 2.5)));
 
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, baseFillConcurrency, baseFillConcurrency);
