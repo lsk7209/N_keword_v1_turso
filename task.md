@@ -64,3 +64,4 @@
 - [x] **Rate Limit Protection**: Capped `expandConcurrency` to `AdKeys * 3` (safe limit) to prevent "All keys rate limited" errors.
 - [x] **Uninterrupted Turbo Mode**: Modified miner to PAUSE/RETRY instead of STOPPING when rate limits are hit, ensuring 24-hour continuous operation.
 - [x] **Timeout Prevention**: Reduced `expandBatch` to 300 and enforced "Ultra Stability" caps to eliminate HTTP 504 errors.
+- [x] **Extreme Stability Mode**: Further reduced `expandBatch` to 100 and internal cap to `Concurrency * 2` to guarantee < 15s execution time.

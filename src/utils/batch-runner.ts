@@ -101,14 +101,14 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, baseFillConcurrency, baseFillConcurrency);
 
-    // 🚀 SAFETY CAP: ULTRA STABILITY (Prevent 504 Timeouts & Allow Retry Overhead)
-    // We strictly limit the batch size to ensure the run finishes in ~30s max,
-    // leaving 30s buffer for retries/backoff.
-    // Max capacity = Concurrency * 10 (~390 items for 39 con)
-    const safeExpandBatchCap = EXPAND_CONCURRENCY * 10;
-    const safeFillBatchCap = FILL_DOCS_CONCURRENCY * 20;
+    // 🚀 SAFETY CAP: EXTREME SAFETY (Prevent 504 Timeouts)
+    // We strictly limit the batch size to ensure the run finishes in ~15s max.
+    // This leaves a huge buffer for retries and overhead.
+    // Max capacity = Concurrency * 2 (~80 items for 40 con)
+    const safeExpandBatchCap = EXPAND_CONCURRENCY * 2;
+    const safeFillBatchCap = FILL_DOCS_CONCURRENCY * 5;
 
-    const expandBatchBase = Math.max(100, EXPAND_CONCURRENCY * 10);
+    const expandBatchBase = Math.max(10, EXPAND_CONCURRENCY * 2);
     const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5);
 
     // Clamp requested batch to safe cap

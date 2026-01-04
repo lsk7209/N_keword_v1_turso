@@ -56,12 +56,12 @@ jobs:
           INTERVAL_SECONDS=10  # 10초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 🚀💰 최종 최적화 파라미터 (Stability Focused)
-          # - expandBatch=300 => 300 시드/실행 (60초 타임아웃 방지 안전값)
+          # 🚀💰 최종 최적화 파라미터 (Extreme Stability)
+          # - expandBatch=100 => 100 시드/실행 (절대 타임아웃 안 나는 초안전값)
           # - expandConcurrency=150 => 150 (내부에서 13키 기준 40으로 자동 조정됨)
           # - minSearchVolume=10 => 최소 검색량 10 (더 많은 롱테일 키워드)
           # - maxRunMs=58000 => Vercel 60초 제한 고려
-          QUERY="task=expand&mode=TURBO&expandBatch=300&expandConcurrency=150&minSearchVolume=10&maxRunMs=58000"
+          QUERY="task=expand&mode=TURBO&expandBatch=100&expandConcurrency=150&minSearchVolume=10&maxRunMs=58000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
