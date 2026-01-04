@@ -31,11 +31,16 @@ async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
     const results: R[] = new Array(items.length);
     let nextIndex = 0;
-    const workers = new Array(Math.max(1, concurrency)).fill(null).map(async () => {
+    const workers = new Array(Math.max(1, concurrency)).fill(null).map(async (_, workerId) => {
+        // 🚀 Ramp-up: Stagger start times to prevent initial burst
+        // worker 0 starts at 0ms, worker 10 at 500ms...
+        await new Promise(r => setTimeout(r, workerId * 50));
+
         while (true) {
             const idx = nextIndex++;
             if (idx >= items.length) return;
-            // 🚀 Stability Optimization: Small jitter between requests to avoid burst 429s
+
+            // Jitter for subsequent requests
             if (nextIndex > concurrency) {
                 await new Promise(r => setTimeout(r, Math.random() * 50 + 10));
             }
@@ -90,9 +95,10 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     // 14개 키 기준 * 15 = 210 concurrency
     const baseExpandConcurrency = Math.min(250, Math.max(14, adKeyCount * 15));
     // Search API: 30개 키 * 25 = 750 concurrency
-    // 🚀 Stability: Use 2.5x multiplier (conservative) to stay under rate limits (10 req/s per key)
-    // 30 keys -> 75 concurrency.
-    const baseFillConcurrency = Math.min(1000, Math.max(10, Math.floor(searchKeyCount * 2.5)));
+    // 🚀 Ultra-Stability: Use 1.0x multiplier.
+    // 30 keys -> 30 concurrency. 4 requests per keyword = 120 requests/sec.
+    // This is well within the 300 req/sec limit of 30 keys (10 req/s each).
+    const baseFillConcurrency = Math.min(1000, Math.max(5, Math.floor(searchKeyCount * 1.0)));
 
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, baseFillConcurrency, baseFillConcurrency);
