@@ -114,17 +114,20 @@ export async function GET(req: NextRequest) {
                     : isAdKeyExhausted ? 'Ad API Keys Exhausted'
                         : 'High Failure Rate';
 
-                console.warn(`[Miner] TURBO STOP: ${reason}. Auto-switching to NORMAL mode.`);
+                console.warn(`[Miner] TURBO PAUSED: ${reason}. Will retry in next loop.`);
 
-                // Disable Turbo Mode in DB (자동으로 일반 모드로 변경)
+                // ⚠️ CHANGED: Do NOT disable Turbo Mode. Just stop this specific run.
+                // This ensures the loop continues once keys cool down.
+                /*
                 await db.execute({
                     sql: 'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)',
                     args: ['mining_mode', 'NORMAL', new Date().toISOString()]
                 });
+                */
 
                 return NextResponse.json({
                     ...result,
-                    info: `Turbo Mode Automatically Stopped (${reason}). Switched to NORMAL mode.`
+                    info: `Turbo Mode Paused (${reason}). Will retry via cron/loop.`
                 });
             }
 

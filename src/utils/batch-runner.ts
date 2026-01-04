@@ -91,23 +91,29 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const searchKeyCount = keyManager.getKeyCount('SEARCH');
     const adKeyCount = keyManager.getKeyCount('AD');
 
-    // 🚀 AD API 최적화: Zero-Read가 적용되었으므로 공격적 확장 가능
-    // 14개 키 기준 * 15 = 210 concurrency
-    const baseExpandConcurrency = Math.min(250, Math.max(14, adKeyCount * 15));
-    // Search API: 30개 키 * 25 = 750 concurrency
-    // 🚀 Ultra-Stability: Use 1.0x multiplier.
-    // 30 keys -> 30 concurrency. 4 requests per keyword = 120 requests/sec.
+    // 🚀 AD API 최적화: Stability Focused
+    // 13개 키 기준 * 3 = 39 concurrency. Safe and steady.
+    const baseExpandConcurrency = Math.min(50, Math.max(5, adKeyCount * 3));
+    // Search API: 30 keys -> 30 concurrency. 4 requests per keyword = 120 requests/sec.
     // This is well within the 300 req/sec limit of 30 keys (10 req/s each).
     const baseFillConcurrency = Math.min(1000, Math.max(5, Math.floor(searchKeyCount * 1.0)));
 
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, baseFillConcurrency, baseFillConcurrency);
 
+    // 🚀 SAFETY CAP: ULTRA STABILITY (Prevent 504 Timeouts & Allow Retry Overhead)
+    // We strictly limit the batch size to ensure the run finishes in ~30s max,
+    // leaving 30s buffer for retries/backoff.
+    // Max capacity = Concurrency * 10 (~390 items for 39 con)
+    const safeExpandBatchCap = EXPAND_CONCURRENCY * 10;
+    const safeFillBatchCap = FILL_DOCS_CONCURRENCY * 20;
+
     const expandBatchBase = Math.max(100, EXPAND_CONCURRENCY * 10);
     const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5);
 
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, 2000, expandBatchBase);
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, 2500, fillDocsBatchBase);
+    // Clamp requested batch to safe cap
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, safeExpandBatchCap, expandBatchBase);
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, safeFillBatchCap, fillDocsBatchBase);
 
     const MIN_SEARCH_VOLUME = Math.max(100, clampInt(options.minSearchVolume, 0, 50_000, 100));
 

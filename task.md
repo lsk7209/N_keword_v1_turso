@@ -59,3 +59,8 @@
 
 
 - [x] **Massive Scale Optimization**: Implemented dynamic concurrency scaling in `batch-runner.ts` to utilize "very many" API keys automatically (up to 300 concurrent requests).
+
+## 11. 24h Stability Optimization (TURBO)
+- [x] **Rate Limit Protection**: Capped `expandConcurrency` to `AdKeys * 3` (safe limit) to prevent "All keys rate limited" errors.
+- [x] **Uninterrupted Turbo Mode**: Modified miner to PAUSE/RETRY instead of STOPPING when rate limits are hit, ensuring 24-hour continuous operation.
+- [x] **Timeout Prevention**: Reduced `expandBatch` to 300 and enforced "Ultra Stability" caps to eliminate HTTP 504 errors.
