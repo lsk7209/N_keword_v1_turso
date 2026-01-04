@@ -13,44 +13,6 @@ import { isBlacklisted } from '@/utils/blacklist';
 import { BloomFilter } from './bloom-filter';
 import { BloomManager } from './bloom-manager';
 
-// 🚀 GLOBAL CACHE: To save writes across multiple batches in one request
-class KeywordCache {
-    private static instance: KeywordCache;
-    private existingKeywords: Set<string> = new Set();
-    private isLoaded: boolean = false;
-
-    public static getInstance(): KeywordCache {
-        if (!KeywordCache.instance) {
-            KeywordCache.instance = new KeywordCache();
-        }
-        return KeywordCache.instance;
-    }
-
-    public async loadAll(): Promise<void> {
-        if (this.isLoaded) return;
-        const db = getTursoClient();
-        console.log('[KeywordCache] 📥 Loading all existing keywords into memory...');
-        try {
-            // we only need the keyword column for deduplication
-            const res = await db.execute('SELECT keyword FROM keywords');
-            res.rows.forEach(r => this.existingKeywords.add(String(r.keyword)));
-            this.isLoaded = true;
-            console.log(`[KeywordCache] ✅ Loaded ${this.existingKeywords.size} keywords into memory.`);
-        } catch (e) {
-            console.error('[KeywordCache] ❌ Failed to load keywords:', e);
-        }
-    }
-
-    public has(keyword: string): boolean {
-        return this.existingKeywords.has(keyword);
-    }
-
-    public add(keyword: string): void {
-        this.existingKeywords.add(keyword);
-    }
-}
-const keywordCache = KeywordCache.getInstance();
-
 export interface Keyword {
     id?: string;
     keyword: string;
@@ -340,42 +302,78 @@ export async function processSeedKeyword(
     };
 }
 
-// 🚀💰💥 ULTIMATE: Pure Write-Only Mode
+// 🚀 HYBRID OPTIMIZATION: Smart Write Policy
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Row Reads: 0 (완전 제거!)
-// 전략: ON CONFLICT DO UPDATE가 중복을 자동 처리
-// → 사전 중복 체크(SELECT, Bloom Filter) 완전 불필요!
+// Strategy:
+// 1. High Volume (>=1000): DIRECT UPSERT (No explicit read check) -> Saves 1 Read, Costs 1 Write
+//    Reason: These are valuable, we always want to update them or insert them.
+//    "Why check if we are going to write anyway?"
+//
+// 2. Low Volume (<1000): READ CHECK -> Filter -> INSERT ONLY NEW
+//    Reason: These are long-tail. Most already exist. We want to avoid writing if they exist.
+//    Cost: 1 Read (to check).
+//          If Exists -> SKIP (Save 1 Write!)
+//          If New -> INSERT (Cost 1 Write)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserted: number; updated: number }> {
-    if (!keywords.length) return { inserted: 0, updated: 0 };
+export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserted: number; updated: number; skipped: number }> {
+    if (!keywords.length) return { inserted: 0, updated: 0, skipped: 0 };
 
     const db = getTursoClient();
-    // ❌ Bloom Filter 로드 제거 - 읽기 비용!
-    // const bloom = await BloomManager.getFilter();
 
-    // 1️⃣ 로컬 중복 제거 (동일 배치 내만 - 메모리 연산)
+    // 1️⃣ Dedup in memory first
     const uniqueKeywords = Array.from(new Map(keywords.map(k => [k.keyword, k])).values());
 
-    // 🚀 SAVING WRITES: Use In-Memory Cache for Pre-Filtering
-    await keywordCache.loadAll();
-
-    const trulyNewKeywords = uniqueKeywords.filter(k => !keywordCache.has(k.keyword));
-    console.log(`[MiningEngine] 🛡️ In-Memory Deduper: ${uniqueKeywords.length} candidates -> ${trulyNewKeywords.length} truly new (Skipped ${uniqueKeywords.length - trulyNewKeywords.length} existing)`);
-
-    if (trulyNewKeywords.length === 0) {
-        console.log('[MiningEngine] 💨 No new keywords to insert. Saving 0 writes.');
-        return { inserted: 0, updated: 0 };
+    if (uniqueKeywords.length === 0) {
+        return { inserted: 0, updated: 0, skipped: 0 };
     }
 
-    // 2️⃣ Bulk Insert Truly New Keywords
     const BATCH_SIZE = 500;
-    let totalInserted = 0;
-    let totalUpdated = 0;
+    let totalUpserted = 0; // We can't easily distinguish insert vs update in batch without read, so we group them
+    let totalSkipped = 0;
 
-    for (let i = 0; i < trulyNewKeywords.length; i += BATCH_SIZE) {
-        const batch = trulyNewKeywords.slice(i, i + BATCH_SIZE);
+    // Process in batches
+    for (let i = 0; i < uniqueKeywords.length; i += BATCH_SIZE) {
+        const batch = uniqueKeywords.slice(i, i + BATCH_SIZE);
 
-        const statements = batch.map(kw => ({
+        // Split Batch: High vs Low Volume
+        const highVolumeBatch = batch.filter(k => k.total_search_cnt >= 1000);
+        const lowVolumeBatch = batch.filter(k => k.total_search_cnt < 1000);
+
+        const toUpsert: Keyword[] = [...highVolumeBatch]; // High volume always upsert
+
+        // Process Low Volume: Check Existence
+        if (lowVolumeBatch.length > 0) {
+            const lowKeywordsStart = lowVolumeBatch.map(k => k.keyword);
+
+            try {
+                // Check which of the low volume keywords already exist
+                const placeholders = lowKeywordsStart.map(() => '?').join(',');
+                const res = await db.execute({
+                    sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
+                    args: lowKeywordsStart
+                });
+
+                const existingSet = new Set(res.rows.map(r => String(r.keyword)));
+
+                // Filter: Only keep NEW low volume keywords
+                for (const kw of lowVolumeBatch) {
+                    if (!existingSet.has(kw.keyword)) {
+                        toUpsert.push(kw); // New low val -> Insert
+                        // (Implicitly count as "Upserted" later)
+                    } else {
+                        totalSkipped++; // Existing low val -> Skip
+                    }
+                }
+            } catch (e) {
+                console.error(`[MiningEngine] ⚠️ Failed check for low-vol batch, fallback to Upsert All:`, e);
+                toUpsert.push(...lowVolumeBatch);
+            }
+        }
+
+        if (toUpsert.length === 0) continue;
+
+        // Execute Upsert for (High Volume + New Low Volume)
+        const statements = toUpsert.map(kw => ({
             sql: `INSERT INTO keywords (
                 id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
                 pc_click_cnt, mo_click_cnt, click_cnt, pc_ctr, mo_ctr, total_ctr,
@@ -408,15 +406,15 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
 
         try {
             await db.batch(statements);
-            totalInserted += batch.length;
-            // Update cache so subsequent batches in same session skip these
-            batch.forEach(k => keywordCache.add(k.keyword));
-            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} upserted`);
+            totalUpserted += toUpsert.length;
+            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${toUpsert.length} upserted, ${batch.length - toUpsert.length} skipped`);
         } catch (e: any) {
             console.error(`[MiningEngine] Batch upsert failed at offset ${i}:`, e.message);
         }
     }
 
-    console.log(`[MiningEngine] 🎯 Pure Write-Only Complete: ${totalInserted} upserted (Row Reads: 0)`);
-    return { inserted: totalInserted, updated: totalUpdated };
+    console.log(`[MiningEngine] 🎯 Hybrid Optimization: Upserted: ${totalUpserted} (HighVol + NewLow), Skipped: ${totalSkipped} (ExistingLow)`);
+    // Note: 'updated' vs 'inserted' is hard to track perfectly without read, so we bundle them.
+    // Ideally user cares about "Saved Writes" (Skipped)
+    return { inserted: totalUpserted, updated: 0, skipped: totalSkipped };
 }
