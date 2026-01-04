@@ -60,11 +60,11 @@ jobs:
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
           # ✅ 안정성 최우선 파라미터 (점진적 증가 계획)
-          # - fillBatch=100 => 100 키워드/실행 (부담 최소화)
-          # - fillConcurrency=10 => 10 동시성 (SEARCH 30개의 1/3만 사용)
+          # - fillBatch=500 => 뉴스 제거로 API 여유 생김! (300 -> 500)
+          # - fillConcurrency=100 => 30개 키 최대 활용 (50 -> 100)
           # - maxRunMs=55000 => Vercel 60초 제한 고려
           # 80%+ 성공률 목표, 안정화 후 점진적 증가
-          QUERY="task=fill_docs&fillBatch=300&fillConcurrency=50&maxRunMs=55000"
+          QUERY="task=fill_docs&fillBatch=500&fillConcurrency=100&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
