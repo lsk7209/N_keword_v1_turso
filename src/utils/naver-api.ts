@@ -96,7 +96,7 @@ export interface DocCounts {
 export async function fetchDocumentCount(keyword: string): Promise<DocCounts> {
 
 
-    type SearchType = 'blog' | 'cafearticle' | 'webkr'; // | 'news';
+    type SearchType = 'blog' | 'cafearticle' | 'webkr' | 'news';
 
     // Helper for single type with retry logic
     const fetchType = async (type: SearchType) => {
@@ -167,23 +167,23 @@ export async function fetchDocumentCount(keyword: string): Promise<DocCounts> {
         throw lastErr || new Error(`Failed to fetch ${type} count`);
     };
 
-    // 🚀 OPTIMIZATION: Remove 'news' fetch to save 25% API calls
-    // We only need blog + cafe + web for Golden Ratio.
+    // 🚀 OPTIMIZATION: 'news' fetch restored as per user request
+    // We fetch blog + cafe + web + news (4 calls per keyword)
     try {
         // Parallel execution for maximum speed
         const results = await Promise.all([
             fetchType('blog'),
             fetchType('cafearticle'),
             fetchType('webkr'),
-            // fetchType('news') // ❌ Disabled to increase throughput
+            fetchType('news')
         ]);
 
         return {
             blog: results[0],
             cafe: results[1],
             web: results[2],
-            news: 0, // Always 0
-            total: results[0] + results[1] + results[2] // + results[3]
+            news: results[3],
+            total: results[0] + results[1] + results[2] + results[3]
         };
     } catch (e) {
         throw e;
