@@ -94,8 +94,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     // If we have 1 key, max 25 concurrency.
     const baseFillConcurrency = Math.min(1000, Math.max(10, searchKeyCount * 25));
 
-    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, 250, baseExpandConcurrency);
-    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, 1000, baseFillConcurrency);
+    const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
+    const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, baseFillConcurrency, baseFillConcurrency);
 
     const expandBatchBase = Math.max(100, EXPAND_CONCURRENCY * 10);
     const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5);
