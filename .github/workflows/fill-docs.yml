@@ -60,11 +60,11 @@ jobs:
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
           # ✅ 안정성 최우선 파라미터 (뉴스 수집 포함 시 부하 고려)
-          # - fillBatch=300 => 뉴스 포함 4회 호출이므로 500은 위험 (300으로 복구)
-          # - fillConcurrency=50 => 안정성 확보 (100 -> 50)
+          # - fillBatch=600 => 30개 키면 충분히 소화 가능 (QPS 여유)
+          # - fillConcurrency=100 => 동시성 확대 (30개 키 * 3.3)
           # - maxRunMs=55000 => Vercel 60초 제한 고려
           # 80%+ 성공률 목표, 안정화 후 점진적 증가
-          QUERY="task=fill_docs&fillBatch=300&fillConcurrency=50&maxRunMs=55000"
+          QUERY="task=fill_docs&fillBatch=600&fillConcurrency=100&maxRunMs=55000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
