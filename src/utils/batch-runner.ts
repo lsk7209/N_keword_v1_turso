@@ -397,7 +397,7 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     console.log(`[BatchRunner] FILL_DOCS: Claimed ${docsToFill.length} items (Concurrency ${concurrency})`);
 
     // 메모리 기반 결과 축적
-    let memoryDocUpdates: { id: string, counts: any }[] = [];
+    let memoryDocUpdates: { id: string, counts: any, tier: string, ratio: number }[] = [];
 
     const processedResults = await mapWithConcurrency(docsToFill, concurrency, async (item) => {
         if (Date.now() > (deadline - 1000)) {
