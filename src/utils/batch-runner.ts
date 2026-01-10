@@ -90,7 +90,7 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
         ? options.task
         : 'all';
 
-    const maxRunMs = clampInt(options.maxRunMs, 10_000, 58_000, 58_000);
+    const maxRunMs = clampInt(options.maxRunMs, 10_000, 50_000, 45_000);
     const deadline = start + maxRunMs;
 
     // API 키 수에 따른 동적 확장 (Adaptive Concurrency)
@@ -130,8 +130,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const safeExpandBatchCap = Math.max(10, EXPAND_CONCURRENCY * 5);
     const safeFillBatchCap = Math.max(50, FILL_DOCS_CONCURRENCY * 10);
 
-    const EXPAND_BATCH_DEFAULT = 1000;
-    const FILL_BATCH_DEFAULT = 1000;
+    const EXPAND_BATCH_DEFAULT = 500;
+    const FILL_BATCH_DEFAULT = 500;
 
     const EXPAND_BATCH = clampInt(options.expandBatch, 1, safeExpandBatchCap, Math.min(EXPAND_BATCH_DEFAULT, safeExpandBatchCap));
     const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, safeFillBatchCap, Math.min(FILL_BATCH_DEFAULT, safeFillBatchCap));
@@ -274,7 +274,8 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     let memorySeedUpdates: { id: string, status: 'success' | 'failed' }[] = [];
 
     const expandResults = await mapWithConcurrency(seedsData, concurrency, async (seed) => {
-        if (Date.now() > (deadline - 2500)) {
+        // Deadline까지 5초 이상 남았을 때만 새 작업 시작
+        if (Date.now() > (deadline - 5000)) {
             return { status: 'skipped_deadline', seed };
         }
 
@@ -400,7 +401,8 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     let memoryDocUpdates: { id: string, counts: any, tier: string, ratio: number }[] = [];
 
     const processedResults = await mapWithConcurrency(docsToFill, concurrency, async (item) => {
-        if (Date.now() > (deadline - 1000)) {
+        // Deadline까지 5초 이상 남았을 때만 새 작업 시작
+        if (Date.now() > (deadline - 5000)) {
             return { status: 'skipped_deadline', item };
         }
         try {

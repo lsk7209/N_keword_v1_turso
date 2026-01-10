@@ -3,8 +3,6 @@ name: Golden Keyword Miner Cron
 on:
   schedule:
     # 🚀 초안정 고수집: 15분 주기로 운영 (사용자 요청 반영)
-    # 기존 10분에서도 막혔던 이유는 빈도보다는 '동시성(130)'이 너무 높았기 때문입니다.
-    # 이제 '적응형 동시성' 로직이 키 상태에 따라 속도를 자동 조절하므로 훨씬 안전합니다.
     - cron: '*/15 * * * *'
   workflow_dispatch: # Allow manual trigger
 
@@ -31,15 +29,12 @@ jobs:
           echo "🚀🚀🚀 Starting STABLE HIGH-VOLUME mining at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
           # 📊 13개 AD API 키 기반 최적화
-          # - 적응형 동시성: 키가 막히면 자동으로 대기하거나 속도를 늦춤
-          # - 15분 간격 실행으로 네이버 API 가이드라인 준수
-          
-          RUN_FOR_SECONDS=420  # 7분간 루프 실행 (15분 주기에 맞춰 넉넉히 실행)
-          INTERVAL_SECONDS=30  # 30초 간격 (긴 호흡으로 안정적 수집)
+          RUN_FOR_SECONDS=450  # 7.5분간 루프 실행
+          INTERVAL_SECONDS=20  # 20초 간격
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 내부 로직에서 13개 키 기준 약 30~40 동시성으로 자동 제한됨
-          PARAMS="task=expand&mode=TURBO&expandBatch=1000&expandConcurrency=130&minSearchVolume=30&maxRunMs=58000"
+          # ⚠️ maxRunMs를 45초로 하향하여 Vercel 504 Timeout 방지
+          PARAMS="task=expand&mode=TURBO&expandBatch=500&expandConcurrency=130&minSearchVolume=30&maxRunMs=45000"
           API_URL="${{ secrets.PROD_URL }}/api/miner/execute?$PARAMS"
 
           TOTAL_OK=0
@@ -48,7 +43,7 @@ jobs:
           while [ $(date +%s) -lt $END_TIME ]; do
             echo "📡 Calling miner: $API_URL"
 
-            MAX_RETRIES=2
+            MAX_RETRIES=1 # 루프 방식이므로 재시도는 최소화
             RETRY_COUNT=0
             SUCCESS=false
 
@@ -71,7 +66,7 @@ jobs:
                 RETRY_COUNT=$((RETRY_COUNT + 1))
                 echo "⚠️  HTTP $HTTP_CODE (retry $RETRY_COUNT/$MAX_RETRIES)"
                 echo "Response: $BODY"
-                sleep 10
+                sleep 5
               fi
             done
 

@@ -29,13 +29,12 @@ jobs:
           echo "📄🚀 Starting STABLE document count collection at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
           # 📊 29개 SEARCH API 키 기반 최적화
-          # - 15분 주기로 매우 안전하게 실행
-          
-          RUN_FOR_SECONDS=420  # 7분간 루프 실행
-          INTERVAL_SECONDS=30  # 30초 간격
+          RUN_FOR_SECONDS=450  # 7.5분간 루프 실행
+          INTERVAL_SECONDS=20  # 20초 간격
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          PARAMS="task=fill_docs&mode=TURBO&fillBatch=1000&fillConcurrency=480&maxRunMs=58000"
+          # ⚠️ maxRunMs를 45초로 하향하여 Vercel 504 Timeout 방지
+          PARAMS="task=fill_docs&mode=TURBO&fillBatch=500&fillConcurrency=480&maxRunMs=45000"
           API_URL="${{ secrets.PROD_URL }}/api/miner/execute?$PARAMS"
 
           TOTAL_OK=0
@@ -45,7 +44,7 @@ jobs:
           while [ $(date +%s) -lt $END_TIME ]; do
             echo "📡 Calling: $API_URL"
 
-            MAX_RETRIES=2
+            MAX_RETRIES=1
             RETRY_COUNT=0
             SUCCESS=false
 
@@ -75,7 +74,7 @@ jobs:
               else
                 RETRY_COUNT=$((RETRY_COUNT + 1))
                 echo "⚠️  HTTP $HTTP_CODE (retry $RETRY_COUNT/$MAX_RETRIES)"
-                sleep 10
+                sleep 5
               fi
             done
 
