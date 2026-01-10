@@ -78,6 +78,9 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const start = Date.now();
     console.log('[BatchRunner] 🚀 Starting Parallel Mining Batch...');
 
+    // 결과 객체 초기화 (Early return 대비)
+    let result: MiningBatchResult = {};
+
     // 🚑 Auto-Healing: 스턱된 키워드 자동 리셋
     await resetStuckKeywords().catch(err => console.error('[BatchRunner] ⚠️ Auto-healing failed:', err));
 
@@ -136,11 +139,9 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const MIN_SEARCH_VOLUME_DEFAULT_VAL = 30; // 100 -> 30으로 하향하여 더 많은 키워드 수집
     const MIN_SEARCH_VOLUME = Math.max(10, clampInt(options.minSearchVolume, 0, 50_000, MIN_SEARCH_VOLUME_DEFAULT_VAL)); // Math.max(100) 제거하여 더 넓은 범위 지원
 
-    console.log(`[BatchRunner] Mode: ${mode}, Keys(S/A): ${searchKeyCount}/${adKeyCount}, Task: ${task}`);
+    console.log(`[BatchRunner] Mode: ${mode}, Keys(S/A): ${availableSearchKeys}/${availableAdKeys}, Task: ${task}`);
     console.log(`[BatchRunner] Config: Expand(Batch:${EXPAND_BATCH}, Conc:${EXPAND_CONCURRENCY}), FillDocs(Batch:${FILL_DOCS_BATCH}, Conc:${FILL_DOCS_CONCURRENCY}), MaxRunMs: ${maxRunMs}`);
 
-    // 결과 객체
-    let result: MiningBatchResult = {};
 
     const tasks: Promise<void>[] = [];
 
