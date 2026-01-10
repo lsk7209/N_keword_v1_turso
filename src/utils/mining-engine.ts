@@ -424,6 +424,8 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
                 cafe_doc_cnt = COALESCE(excluded.cafe_doc_cnt, cafe_doc_cnt),
                 web_doc_cnt = COALESCE(excluded.web_doc_cnt, web_doc_cnt),
                 news_doc_cnt = COALESCE(excluded.news_doc_cnt, news_doc_cnt),
+                golden_ratio = COALESCE(excluded.golden_ratio, golden_ratio),
+                tier = COALESCE(excluded.tier, tier),
                 updated_at = excluded.updated_at;`,
             args: [
                 kw.id || generateUUID(),
