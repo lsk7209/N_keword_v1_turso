@@ -57,80 +57,94 @@ export default async function MonitorPage() {
     let seedKeywordsExpanded = 0;
     let seedKeywordsProcessing = 0;
     let recentSeeds: any[] = [];
+    let lastUpdatedFormatted = 'Realtime';
 
     try {
         const db = getTursoClient();
-        const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-        // 1. Fetch Stats in parallel
-        // 1. Fetch Stats efficiently to minimize Turso Reads
-        const [
-            mainStatsResult,
-            tierStatsResult,
-            seedStatsResult,
-            newStatsResult,
-            recentLogsResult,
-            recentSeedsResult
-        ] = await Promise.all([
-            // Combine total, analyzed, and global expanded counts
-            db.execute(`
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN total_doc_cnt >= 0 THEN 1 ELSE 0 END) as analyzed,
-                    SUM(CASE WHEN is_expanded = 1 THEN 1 ELSE 0 END) as expanded
-                FROM keywords
-            `),
-            // Get all tier counts in one scan
-            db.execute('SELECT tier, COUNT(*) as count FROM keywords GROUP BY tier'),
-            // Get all seed status counts in one scan
-            db.execute(`
-                SELECT is_expanded, COUNT(*) as count 
-                FROM keywords 
-                WHERE total_search_cnt >= 100 
-                GROUP BY is_expanded
-            `),
-            // 24h stats
-            db.execute(`
-                SELECT 
-                    SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as new24h,
-                    SUM(CASE WHEN total_doc_cnt >= 0 AND updated_at >= ? THEN 1 ELSE 0 END) as docs24h
-                FROM keywords
-            `, [since24h, since24h]),
-            // Lists
+        // 🚀 Optimization: Try to load from Cache first
+        let usedCache = false;
+        try {
+            const cacheRes = await db.execute("SELECT value, updated_at FROM stats_cache WHERE key = 'monitor_stats'");
+            if (cacheRes.rows.length > 0 && cacheRes.rows[0].value) {
+                const stats = JSON.parse(cacheRes.rows[0].value as string);
+
+                // Load from Cache
+                total = stats.total || 0;
+                analyzed = stats.analyzed || 0;
+                expanded = stats.expanded || 0;
+
+                if (stats.tiers) {
+                    platinumCount = stats.tiers.platinum || 0;
+                    goldCount = stats.tiers.gold || 0;
+                    silverCount = stats.tiers.silver || 0;
+                    bronzeCount = stats.tiers.bronze || 0;
+                }
+
+                if (stats.counts24h) {
+                    newKeywords24h = stats.counts24h.new || 0;
+                    docsFilled24h = stats.counts24h.docs || 0;
+                }
+
+                if (stats.seeds) {
+                    seedKeywordsTotal = stats.seeds.total || 0;
+                    seedKeywordsPending = stats.seeds.pending || 0;
+                    seedKeywordsExpanded = stats.seeds.expanded || 0;
+                    seedKeywordsProcessing = stats.seeds.processing || 0;
+                }
+
+                const cachedTime = new Date(stats.last_updated);
+                lastUpdatedFormatted = cachedTime.toLocaleTimeString();
+                usedCache = true;
+                // console.log('[Monitor] Loaded stats from cache:', stats.last_updated);
+            }
+        } catch (e) {
+            console.warn('[Monitor] Cache load failed, fallback to live queries:', e);
+        }
+
+        // Always fetch Recent Logs & Seeds (Lightweight)
+        const [recentLogsResult, recentSeedsResult] = await Promise.all([
             db.execute('SELECT * FROM keywords ORDER BY created_at DESC LIMIT 10'),
             db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 100 ORDER BY total_search_cnt DESC LIMIT 20')
         ]);
 
-        // Parse Results
-        total = (mainStatsResult.rows[0]?.total as number) || 0;
-        analyzed = (mainStatsResult.rows[0]?.analyzed as number) || 0;
-        expanded = (mainStatsResult.rows[0]?.expanded as number) || 0;
+        // If Cache missed, run Heavy Queries (Fallback)
+        if (!usedCache) {
+            const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const [mainStatsResult, tierStatsResult, seedStatsResult, newStatsResult] = await Promise.all([
+                db.execute(`SELECT COUNT(*) as total, SUM(CASE WHEN total_doc_cnt >= 0 THEN 1 ELSE 0 END) as analyzed, SUM(CASE WHEN is_expanded = 1 THEN 1 ELSE 0 END) as expanded FROM keywords`),
+                db.execute('SELECT tier, COUNT(*) as count FROM keywords GROUP BY tier'),
+                db.execute(`SELECT is_expanded, COUNT(*) as count FROM keywords WHERE total_search_cnt >= 100 GROUP BY is_expanded`),
+                db.execute(`SELECT SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as new24h, SUM(CASE WHEN total_doc_cnt >= 0 AND updated_at >= ? THEN 1 ELSE 0 END) as docs24h FROM keywords`, [since24h, since24h])
+            ]);
 
-        // Tiers
-        tierStatsResult.rows.forEach(row => {
-            const t = String(row.tier);
-            const c = Number(row.count);
-            if (t === 'PLATINUM') platinumCount = c;
-            else if (t === 'GOLD') goldCount = c;
-            else if (t === 'SILVER') silverCount = c;
-            else if (t === 'BRONZE') bronzeCount = c;
-        });
+            total = (mainStatsResult.rows[0]?.total as number) || 0;
+            analyzed = (mainStatsResult.rows[0]?.analyzed as number) || 0;
+            expanded = (mainStatsResult.rows[0]?.expanded as number) || 0;
 
-        // Seeds
-        seedKeywordsTotal = seedStatsResult.rows.reduce((sum, row) => sum + Number(row.count), 0);
-        seedStatsResult.rows.forEach(row => {
-            const s = Number(row.is_expanded);
-            const c = Number(row.count);
-            if (s === 0) seedKeywordsPending = c;
-            else if (s === 1) seedKeywordsExpanded = c;
-            else if (s === 2) seedKeywordsProcessing = c;
-        });
+            tierStatsResult.rows.forEach(row => {
+                const t = String(row.tier);
+                const c = Number(row.count);
+                if (t === 'PLATINUM') platinumCount = c;
+                else if (t === 'GOLD') goldCount = c;
+                else if (t === 'SILVER') silverCount = c;
+                else if (t === 'BRONZE') bronzeCount = c;
+            });
 
-        // 24h
-        newKeywords24h = (newStatsResult.rows[0]?.new24h as number) || 0;
-        docsFilled24h = (newStatsResult.rows[0]?.docs24h as number) || 0;
+            seedKeywordsTotal = seedStatsResult.rows.reduce((sum, row) => sum + Number(row.count), 0);
+            seedStatsResult.rows.forEach(row => {
+                const s = Number(row.is_expanded);
+                const c = Number(row.count);
+                if (s === 0) seedKeywordsPending = c;
+                else if (s === 1) seedKeywordsExpanded = c;
+                else if (s === 2) seedKeywordsProcessing = c;
+            });
 
-        // Logs
+            newKeywords24h = (newStatsResult.rows[0]?.new24h as number) || 0;
+            docsFilled24h = (newStatsResult.rows[0]?.docs24h as number) || 0;
+        }
+
+        // Parse Lists
         recentLogs = recentLogsResult.rows.map(row => ({
             id: row.id,
             keyword: row.keyword,
@@ -182,8 +196,11 @@ export default async function MonitorPage() {
                             <Activity className="w-8 h-8 text-emerald-500" />
                             System Monitor
                         </h1>
-                        <p className="text-zinc-500 dark:text-zinc-400 mt-1">
+                        <p className="text-zinc-500 dark:text-zinc-400 mt-1 flex items-center gap-2">
                             실시간 수집 현황 및 데이터 분석 대시보드
+                            <span className="text-xs px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-full border border-zinc-200 dark:border-zinc-700">
+                                Updated: {lastUpdatedFormatted}
+                            </span>
                         </p>
                     </div>
                     <div className="flex gap-2">

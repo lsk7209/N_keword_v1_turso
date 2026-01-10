@@ -327,46 +327,80 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
         return { inserted: 0, updated: 0, skipped: 0 };
     }
 
-    const BATCH_SIZE = 500;
-    let totalUpserted = 0; // We can't easily distinguish insert vs update in batch without read, so we group them
+    // 🌸 2️⃣ Load Bloom Filter (Zero-Read Optimization)
+    let bloom: BloomFilter | null = null;
+    try {
+        bloom = await BloomManager.getFilter();
+    } catch (e) {
+        console.warn('[MiningEngine] Bloom filter load failed, falling back to hybrid:', e);
+    }
+
+    const BATCH_SIZE = 500; // Reduced to 500 for safety
+    let totalUpserted = 0;
     let totalSkipped = 0;
+    let bloomSavedCount = 0;
 
     // Process in batches
     for (let i = 0; i < uniqueKeywords.length; i += BATCH_SIZE) {
         const batch = uniqueKeywords.slice(i, i + BATCH_SIZE);
+        const toUpsert: Keyword[] = [];
 
         // Split Batch: High vs Low Volume
         const highVolumeBatch = batch.filter(k => k.total_search_cnt >= 1000);
         const lowVolumeBatch = batch.filter(k => k.total_search_cnt < 1000);
 
-        const toUpsert: Keyword[] = [...highVolumeBatch]; // High volume always upsert
+        // A. High Volume: Always Upsert (Valuable)
+        toUpsert.push(...highVolumeBatch);
 
-        // Process Low Volume: Check Existence
+        // B. Low Volume: Check Existence (Zero-Read via Bloom -> Hybrid DB)
         if (lowVolumeBatch.length > 0) {
-            const lowKeywordsStart = lowVolumeBatch.map(k => k.keyword);
+            const potentialNew: Keyword[] = [];
+            const maybeTypes: Keyword[] = [];
 
-            try {
-                // Check which of the low volume keywords already exist
-                const placeholders = lowKeywordsStart.map(() => '?').join(',');
-                const res = await db.execute({
-                    sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
-                    args: lowKeywordsStart
-                });
-
-                const existingSet = new Set(res.rows.map(r => String(r.keyword)));
-
-                // Filter: Only keep NEW low volume keywords
-                for (const kw of lowVolumeBatch) {
-                    if (!existingSet.has(kw.keyword)) {
-                        toUpsert.push(kw); // New low val -> Insert
-                        // (Implicitly count as "Upserted" later)
-                    } else {
-                        totalSkipped++; // Existing low val -> Skip
-                    }
+            for (const kw of lowVolumeBatch) {
+                // 🌸 Bloom Check
+                if (bloom && !bloom.has(kw.keyword)) {
+                    // Definitely New! (Zero-Read Success)
+                    potentialNew.push(kw);
+                    bloom.add(kw.keyword); // Add to bloom cache
+                    bloomSavedCount++;
+                } else {
+                    // Maybe Exists (or Bloom failed) -> Check DB
+                    maybeTypes.push(kw);
                 }
-            } catch (e) {
-                console.error(`[MiningEngine] ⚠️ Failed check for low-vol batch, fallback to Upsert All:`, e);
-                toUpsert.push(...lowVolumeBatch);
+            }
+
+            // 1. New from Bloom are added directly
+            toUpsert.push(...potentialNew);
+
+            // 2. Check "Maybe" keywords via DB (Legacy Hybrid Check)
+            if (maybeTypes.length > 0) {
+                const maybeKeywords = maybeTypes.map(k => k.keyword);
+
+                try {
+                    const placeholders = maybeKeywords.map(() => '?').join(',');
+                    const res = await db.execute({
+                        sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
+                        args: maybeKeywords
+                    });
+
+                    const existingSet = new Set(res.rows.map(r => String(r.keyword)));
+
+                    for (const kw of maybeTypes) {
+                        if (!existingSet.has(kw.keyword)) {
+                            toUpsert.push(kw); // Really New -> Insert
+                            if (bloom) {
+                                bloom.add(kw.keyword); // Update bloom (False positive correction?) No, just ensure it's there
+                                bloomSavedCount++;
+                            }
+                        } else {
+                            totalSkipped++; // Existing -> Skip
+                        }
+                    }
+                } catch (e) {
+                    console.error(`[MiningEngine] ⚠️ Failed check for low-vol batch, fallback to Upsert All:`, e);
+                    toUpsert.push(...maybeTypes);
+                }
             }
         }
 
@@ -407,14 +441,17 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
         try {
             await db.batch(statements);
             totalUpserted += toUpsert.length;
-            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${toUpsert.length} upserted, ${batch.length - toUpsert.length} skipped`);
+            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${toUpsert.length} upserted, ${batch.length - toUpsert.length} skipped (Bloom Hits: ${batch.length - toUpsert.length - (lowVolumeBatch.length - toUpsert.length + (highVolumeBatch.length)) /* approximate */})`);
         } catch (e: any) {
             console.error(`[MiningEngine] Batch upsert failed at offset ${i}:`, e.message);
         }
     }
 
-    console.log(`[MiningEngine] 🎯 Hybrid Optimization: Upserted: ${totalUpserted} (HighVol + NewLow), Skipped: ${totalSkipped} (ExistingLow)`);
-    // Note: 'updated' vs 'inserted' is hard to track perfectly without read, so we bundle them.
-    // Ideally user cares about "Saved Writes" (Skipped)
+    // 🌸 Async Save Bloom Filter if changed
+    if (bloom && bloomSavedCount > 0) {
+        BloomManager.saveFilter(bloom).catch(err => console.error('[MiningEngine] Failed to save bloom filter:', err));
+    }
+
+    console.log(`[MiningEngine] 🎯 Hybrid+Bloom Optimization: Upserted: ${totalUpserted}, Skipped: ${totalSkipped}`);
     return { inserted: totalUpserted, updated: 0, skipped: totalSkipped };
 }

@@ -4,6 +4,12 @@
             "maxDuration": 60
         }
     },
+    "crons": [
+        {
+            "path": "/api/cron/update-stats",
+            "schedule": "0 * * * *"
+        }
+    ],
     "headers": [
         {
             "source": "/(.*)",

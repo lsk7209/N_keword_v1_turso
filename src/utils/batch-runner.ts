@@ -78,6 +78,9 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const start = Date.now();
     console.log('[BatchRunner] 🚀 Starting Parallel Mining Batch...');
 
+    // 🚑 Auto-Healing: 스턱된 키워드 자동 리셋
+    await resetStuckKeywords().catch(err => console.error('[BatchRunner] ⚠️ Auto-healing failed:', err));
+
     // 기본 설정
     let mode: MiningMode = 'TURBO';
     const task: MiningTask = (options.task === 'expand' || options.task === 'fill_docs' || options.task === 'all')
@@ -429,4 +432,25 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
             return `${r.item?.keyword || 'unknown'}: SKIPPED`;
         })
     };
+}
+
+/**
+ * 🚑 Auto-Healing Function
+ * 실행된 지 오래된(예: 1시간) Processing 상태(2) 키워드를 0으로 강제 리셋합니다.
+ */
+async function resetStuckKeywords() {
+    const db = getTursoClient();
+    try {
+        // 1. Check count first (Cheap)
+        const check = await db.execute("SELECT count(*) as count FROM keywords WHERE is_expanded = 2 AND updated_at < datetime('now', '-1 hour')");
+        const count = check.rows[0].count as number;
+
+        if (count > 0) {
+            console.log(`[BatchRunner] 🚑 Found ${count} stuck keywords. Auto-healing...`);
+            await db.execute("UPDATE keywords SET is_expanded = 0 WHERE is_expanded = 2 AND updated_at < datetime('now', '-1 hour')");
+            console.log(`[BatchRunner] ✅ Auto-healed ${count} keywords.`);
+        }
+    } catch (e) {
+        console.error('[BatchRunner] Auto-healing check failed:', e);
+    }
 }
