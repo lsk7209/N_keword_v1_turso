@@ -111,7 +111,6 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const safeExpandBatchCap = EXPAND_CONCURRENCY * 2;
     const safeFillBatchCap = FILL_DOCS_CONCURRENCY * 5;
 
-    const expandBatchBase = Math.max(10, EXPAND_CONCURRENCY * 2);
     const EXPAND_BATCH_DEFAULT = 1000; // 500 -> 1000 상향
     const FILL_BATCH_DEFAULT = 1000;   // 500 -> 1000 상향
     const expandBatchBase = Math.max(10, EXPAND_CONCURRENCY * 2, EXPAND_BATCH_DEFAULT);
