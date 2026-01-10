@@ -28,13 +28,12 @@ jobs:
           START_TIME=$(date +%s)
           echo "📄🚀 Starting STABLE document count collection at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
-          # 📊 29개 SEARCH API 키 기반 최적화
           RUN_FOR_SECONDS=450  # 7.5분간 루프 실행
           INTERVAL_SECONDS=20  # 20초 간격
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # ⚠️ maxRunMs를 45초로 하향하여 Vercel 504 Timeout 방지
-          PARAMS="task=fill_docs&mode=TURBO&fillBatch=500&fillConcurrency=480&maxRunMs=45000"
+          # ⚠️ Safe Mode: fillBatch=200, maxRunMs=40000 (40s)
+          PARAMS="task=fill_docs&mode=TURBO&fillBatch=200&fillConcurrency=480&maxRunMs=40000"
           API_URL="${{ secrets.PROD_URL }}/api/miner/execute?$PARAMS"
 
           TOTAL_OK=0

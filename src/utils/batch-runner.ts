@@ -100,27 +100,26 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     // 🚀 AD API 최적화: 스마트 쿨다운 대응
     let baseExpandConcurrency = 1;
     if (availableAdKeys > 0) {
-        // 키당 최대 3개 동시 요청 (네이버 API는 초당 1-2회 권장)
-        baseExpandConcurrency = Math.min(50, availableAdKeys * 3);
+        // 키당 최대 2개 동시 요청 (안정성 최우선)
+        baseExpandConcurrency = Math.min(30, availableAdKeys * 2);
     } else {
         // 모든 키가 쿨다운 중이면 잠시 대기 시도 (TURBO 유지)
         console.warn('[BatchRunner] ⚠️ All AD keys cooling down. Waiting...');
-        const ready = await keyManager.waitForNextKey('AD', 3000);
+        const ready = await keyManager.waitForNextKey('AD', 2000);
         if (ready) {
-            baseExpandConcurrency = Math.min(5, keyManager.getAvailableKeyCount('AD') * 2);
+            baseExpandConcurrency = Math.min(3, keyManager.getAvailableKeyCount('AD') * 1);
         } else {
             console.warn('[BatchRunner] 🛑 Skipping Expand Task: No AD keys ready.');
             if (task === 'expand') return result;
         }
     }
 
-    // Search API: 키당 초당 10회 가능. 29개 키 = 290 req/s. 
-    // keyword당 4개 호출하므로 concurrency 70 정도가 안전함
-    let baseFillConcurrency = Math.min(100, Math.max(1, availableSearchKeys * 3));
+    // Search API: Stability Focus (2 requests per key)
+    let baseFillConcurrency = Math.min(60, Math.max(1, availableSearchKeys * 2));
     if (availableSearchKeys === 0) {
         console.warn('[BatchRunner] ⚠️ All SEARCH keys cooling down. Waiting...');
         await keyManager.waitForNextKey('SEARCH', 2000);
-        baseFillConcurrency = Math.min(10, keyManager.getAvailableKeyCount('SEARCH') * 2);
+        baseFillConcurrency = Math.min(5, keyManager.getAvailableKeyCount('SEARCH') * 1);
     }
 
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
@@ -130,8 +129,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const safeExpandBatchCap = Math.max(10, EXPAND_CONCURRENCY * 5);
     const safeFillBatchCap = Math.max(50, FILL_DOCS_CONCURRENCY * 10);
 
-    const EXPAND_BATCH_DEFAULT = 500;
-    const FILL_BATCH_DEFAULT = 500;
+    const EXPAND_BATCH_DEFAULT = 200;
+    const FILL_BATCH_DEFAULT = 200;
 
     const EXPAND_BATCH = clampInt(options.expandBatch, 1, safeExpandBatchCap, Math.min(EXPAND_BATCH_DEFAULT, safeExpandBatchCap));
     const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, safeFillBatchCap, Math.min(FILL_BATCH_DEFAULT, safeFillBatchCap));
