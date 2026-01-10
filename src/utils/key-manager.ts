@@ -135,15 +135,30 @@ class KeyManager {
         throw new Error(`All ${type} keys are rate limited or in cooldown`);
     }
 
+    public getAvailableKeyCount(type: KeyType): number {
+        this.ensureLoaded();
+        const keys = type === 'AD' ? this.adKeys : this.searchKeys;
+        const now = Date.now();
+        return keys.filter(k => k.cooldownUntil <= now).length;
+    }
+
     public report429(keyId: string, type: KeyType) {
         const keys = type === 'AD' ? this.adKeys : this.searchKeys;
         const key = keys.find(k => k.id === keyId);
         if (key) {
-            // Cooldown for 2 minutes? Or random?
-            // User said "Apply cooldown". I'll do 60 seconds to be safe.
-            key.cooldownUntil = Date.now() + 60 * 1000;
-            console.warn(`Key ${keyId.substring(0, 5)}... marked for cooldown (429)`);
+            // Increase cooldown to 3 minutes for stability
+            key.cooldownUntil = Date.now() + 3 * 60 * 1000;
+            console.warn(`Key ${keyId.substring(0, 5)}... marked for cooldown (429) - 3 mins`);
         }
+    }
+
+    public async waitForNextKey(type: KeyType, maxWaitMs = 5000): Promise<boolean> {
+        const start = Date.now();
+        while (Date.now() - start < maxWaitMs) {
+            if (this.getAvailableKeyCount(type) > 0) return true;
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        return false;
     }
 
     public getStatusSummary(type: KeyType) {

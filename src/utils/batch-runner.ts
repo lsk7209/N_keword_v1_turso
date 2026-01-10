@@ -90,35 +90,48 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const maxRunMs = clampInt(options.maxRunMs, 10_000, 58_000, 58_000);
     const deadline = start + maxRunMs;
 
-    // API 키 수에 따른 동적 확장
-    const searchKeyCount = keyManager.getKeyCount('SEARCH');
-    const adKeyCount = keyManager.getKeyCount('AD');
+    // API 키 수에 따른 동적 확장 (Adaptive Concurrency)
+    const availableSearchKeys = keyManager.getAvailableKeyCount('SEARCH');
+    const availableAdKeys = keyManager.getAvailableKeyCount('AD');
 
-    // 🚀 AD API 최적화: Stability Focused
-    // 13개 키 기준 * 3 = 39 concurrency. Safe and steady.
-    const baseExpandConcurrency = Math.min(50, Math.max(5, adKeyCount * 3));
-    // Search API: 30 keys -> 30 concurrency. 4 requests per keyword = 120 requests/sec.
-    // This is well within the 300 req/sec limit of 30 keys (10 req/s each).
-    const baseFillConcurrency = Math.min(1000, Math.max(5, Math.floor(searchKeyCount * 1.0)));
+    // 🚀 AD API 최적화: 스마트 쿨다운 대응
+    let baseExpandConcurrency = 1;
+    if (availableAdKeys > 0) {
+        // 키당 최대 3개 동시 요청 (네이버 API는 초당 1-2회 권장)
+        baseExpandConcurrency = Math.min(50, availableAdKeys * 3);
+    } else {
+        // 모든 키가 쿨다운 중이면 잠시 대기 시도 (TURBO 유지)
+        console.warn('[BatchRunner] ⚠️ All AD keys cooling down. Waiting...');
+        const ready = await keyManager.waitForNextKey('AD', 3000);
+        if (ready) {
+            baseExpandConcurrency = Math.min(5, keyManager.getAvailableKeyCount('AD') * 2);
+        } else {
+            console.warn('[BatchRunner] 🛑 Skipping Expand Task: No AD keys ready.');
+            if (task === 'expand') return result;
+        }
+    }
+
+    // Search API: 키당 초당 10회 가능. 29개 키 = 290 req/s. 
+    // keyword당 4개 호출하므로 concurrency 70 정도가 안전함
+    let baseFillConcurrency = Math.min(100, Math.max(1, availableSearchKeys * 3));
+    if (availableSearchKeys === 0) {
+        console.warn('[BatchRunner] ⚠️ All SEARCH keys cooling down. Waiting...');
+        await keyManager.waitForNextKey('SEARCH', 2000);
+        baseFillConcurrency = Math.min(10, keyManager.getAvailableKeyCount('SEARCH') * 2);
+    }
 
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, baseFillConcurrency, baseFillConcurrency);
 
-    // 🚀 SAFETY CAP: EXTREME SAFETY (Prevent 504 Timeouts)
-    // We strictly limit the batch size to ensure the run finishes in ~15s max.
-    // This leaves a huge buffer for retries and overhead.
-    // Max capacity = Concurrency * 2 (~80 items for 40 con)
-    const safeExpandBatchCap = EXPAND_CONCURRENCY * 2;
-    const safeFillBatchCap = FILL_DOCS_CONCURRENCY * 5;
+    // 🚀 SAFETY CAP: KEY capacity 기반 배치 크기 자동 조절
+    const safeExpandBatchCap = Math.max(10, EXPAND_CONCURRENCY * 5);
+    const safeFillBatchCap = Math.max(50, FILL_DOCS_CONCURRENCY * 10);
 
-    const EXPAND_BATCH_DEFAULT = 1000; // 500 -> 1000 상향
-    const FILL_BATCH_DEFAULT = 1000;   // 500 -> 1000 상향
-    const expandBatchBase = Math.max(10, EXPAND_CONCURRENCY * 2, EXPAND_BATCH_DEFAULT);
-    const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5, FILL_BATCH_DEFAULT);
+    const EXPAND_BATCH_DEFAULT = 1000;
+    const FILL_BATCH_DEFAULT = 1000;
 
-    // Clamp requested batch to safe cap
-    const EXPAND_BATCH = clampInt(options.expandBatch, 1, safeExpandBatchCap, expandBatchBase);
-    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, safeFillBatchCap, fillDocsBatchBase);
+    const EXPAND_BATCH = clampInt(options.expandBatch, 1, safeExpandBatchCap, Math.min(EXPAND_BATCH_DEFAULT, safeExpandBatchCap));
+    const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, safeFillBatchCap, Math.min(FILL_BATCH_DEFAULT, safeFillBatchCap));
 
     const MIN_SEARCH_VOLUME_DEFAULT_VAL = 30; // 100 -> 30으로 하향하여 더 많은 키워드 수집
     const MIN_SEARCH_VOLUME = Math.max(10, clampInt(options.minSearchVolume, 0, 50_000, MIN_SEARCH_VOLUME_DEFAULT_VAL)); // Math.max(100) 제거하여 더 넓은 범위 지원

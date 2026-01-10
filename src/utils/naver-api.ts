@@ -158,7 +158,10 @@ export async function fetchDocumentCount(keyword: string): Promise<DocCounts> {
 
             } catch (e: any) {
                 lastErr = e;
-                // console.error(`[NaverAPI] Key ${key?.id?.slice(0,5)}... fail:`, e.message);
+                if (e.message?.includes('rate limited')) {
+                    // 키가 모두 소진된 경우 즉시 중지하고 에러 전파 (상위에서 처리)
+                    throw e;
+                }
                 if (e instanceof Error && e.message.includes('No SEARCH keys')) throw e;
             }
         }

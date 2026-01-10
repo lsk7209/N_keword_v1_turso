@@ -2,16 +2,15 @@ name: 📄 문서수 수집 크론 (Document Count Collection)
 
 on:
   schedule:
-    # 🚀 안정성을 위해 10분 주기로 운영
-    - cron: '*/10 * * * *'
-  workflow_dispatch: # Allow manual trigger가능
+    # 🚀 초안정 고수집: 15분 주기로 운영 (사용자 요청 반영)
+    - cron: '0,15,30,45 * * * *'
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
   fill_docs:
     runs-on: ubuntu-latest
-    timeout-minutes: 6  # 3.5분 루프 + 여유
+    timeout-minutes: 10
     concurrency:
-      # 문서수 수집 전용 그룹 (키워드 확장과 독립 실행)
       group: document-fill-cron
       cancel-in-progress: false
     
@@ -19,66 +18,39 @@ jobs:
       - name: 📄 문서수 수집 시작
         id: fill_docs
         run: |
-          set -e  # 에러 시 즉시 중단
+          set -e
           
-          # 환경 변수 검증
           if [ -z "${{ secrets.PROD_URL }}" ] || [ -z "${{ secrets.CRON_SECRET }}" ]; then
-            echo "❌ ERROR: PROD_URL or CRON_SECRET is not set in GitHub Secrets."
+            echo "❌ ERROR: PROD_URL or CRON_SECRET is not set."
             exit 1
           fi
           
           START_TIME=$(date +%s)
-          echo "📄🚀 Starting ULTRA document count collection at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-          echo "🔗 Target: ${{ secrets.PROD_URL }}/api/miner/execute"
+          echo "📄🚀 Starting STABLE document count collection at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
-          # ═══════════════════════════════════════════════════════════════════════
-          # 🚀 초고성능: SEARCH API 30개 키 최대 활용
-          # ═══════════════════════════════════════════════════════════════════════
-          # 
-          # 📊 SEARCH API 활용 전략:
-          # - 30개 키 × 일일 25,000회 = 750,000회 가능
-          # - 키워드당 4개 API 호출 (blog, cafe, web, news)
-          # - 일일 187,500개 키워드 문서수 수집 가능
-          #
-          # ⚡ 최적화 수치 (GitHub Actions 5분 제한 준수):
-          # - 크론 주기: 5분마다 (하루 288회)
-          # - 루프 시간: 3.5분 (210초)
-          # - 호출 간격: 10초 (루프당 21회 API 호출)
-          # - 배치 크기: 500개 (동시성의 5배)
-          # - 동시성: 100개 (30개 키 × 3.3)
-          #
-          # 📈 예상 처리량:
-          # - 크론당: 21회 × 500개 = 10,500개 키워드
-          # - 일일: 288회 × 10,500 = 3,024,000개 (이론상)
-          # - 실제 (중복/실패 고려): 25만~35만개/일
-          # ═══════════════════════════════════════════════════════════════════════
+          # 📊 29개 SEARCH API 키 기반 최적화
+          # - 15분 주기로 매우 안전하게 실행
           
-          RUN_FOR_SECONDS=210  # 3.5분간 실행 (고성능 복구)
-          INTERVAL_SECONDS=10  # 10초마다 API 호출
+          RUN_FOR_SECONDS=420  # 7분간 루프 실행
+          INTERVAL_SECONDS=30  # 30초 간격
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # ⚡ 공격적인 설정: 최적의 성능을 낼 수 있도록 조정
-          # fillBatch: 1000 (한 번에 1000개 수집)
-          # fillConcurrency: 480 (검색 API 30개 기준)
-          API_URL="${{ secrets.PROD_URL }}/api/miner/execute?task=fill_docs&mode=TURBO&fillBatch=1000&fillConcurrency=480&maxRunMs=58000"
+          PARAMS="task=fill_docs&mode=TURBO&fillBatch=1000&fillConcurrency=480&maxRunMs=58000"
+          API_URL="${{ secrets.PROD_URL }}/api/miner/execute?$PARAMS"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
           TOTAL_KEYWORDS=0
 
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo ""
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "📡 API 호출: ${{ secrets.PROD_URL }}/api/miner/execute?$QUERY"
-            echo "⏰ 남은 시간: $((END_TIME - $(date +%s)))초"
+            echo "📡 Calling: $API_URL"
 
-            # 재시도 로직
             MAX_RETRIES=2
             RETRY_COUNT=0
             SUCCESS=false
 
             while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
-              RESPONSE=$(curl -X GET "${{ secrets.PROD_URL }}/api/miner/execute?$QUERY" \
+              RESPONSE=$(curl -X GET "$API_URL" \
                 -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
                 -w "\n%{http_code}" \
                 --max-time 75 \
@@ -91,54 +63,28 @@ jobs:
               if [ "$HTTP_CODE" = "200" ]; then
                 SUCCESS=true
                 TOTAL_OK=$((TOTAL_OK + 1))
-                echo "✅ HTTP $HTTP_CODE - 성공"
+                echo "✅ HTTP $HTTP_CODE"
                 
-                # JSON 응답 파싱 (jq가 있으면)
                 if command -v jq &> /dev/null; then
-                  echo "$BODY" | jq '.' || echo "$BODY"
-                  # 처리된 키워드 수 추출 (응답에 포함된 경우)
                   KEYWORDS_PROCESSED=$(echo "$BODY" | jq -r '.fillDocs?.processed // 0' 2>/dev/null || echo "0")
                   if [ "$KEYWORDS_PROCESSED" != "0" ] && [ "$KEYWORDS_PROCESSED" != "null" ]; then
                     TOTAL_KEYWORDS=$((TOTAL_KEYWORDS + KEYWORDS_PROCESSED))
-                    echo "📊 이번 배치 처리: ${KEYWORDS_PROCESSED}개 키워드"
+                    echo "📊 처리된 키워드: ${KEYWORDS_PROCESSED}개"
                   fi
-                else
-                  echo "$BODY"
                 fi
               else
                 RETRY_COUNT=$((RETRY_COUNT + 1))
-                echo "⚠️  HTTP $HTTP_CODE (재시도 $RETRY_COUNT/$MAX_RETRIES)"
-                echo "응답: $BODY"
-                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                  sleep $((RETRY_COUNT * 3))
-                fi
+                echo "⚠️  HTTP $HTTP_CODE (retry $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 10
               fi
             done
 
             if [ "$SUCCESS" = "false" ]; then
               TOTAL_FAIL=$((TOTAL_FAIL + 1))
-              echo "❌ 최종 실패 (재시도 모두 실패)"
             fi
 
-            # 다음 호출까지 대기
-            if [ $(date +%s) -lt $END_TIME ]; then
-              echo "⏳ ${INTERVAL_SECONDS}초 대기 중..."
-              sleep $INTERVAL_SECONDS
-            fi
+            sleep $INTERVAL_SECONDS
           done
 
-          END_TIME=$(date +%s)
-          DURATION=$((END_TIME - START_TIME))
-          
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📈 실행 요약"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ 성공: $TOTAL_OK회"
-          echo "❌ 실패: $TOTAL_FAIL회"
-          if [ $TOTAL_KEYWORDS -gt 0 ]; then
-            echo "📊 총 처리된 키워드: ${TOTAL_KEYWORDS}개"
-          fi
-          echo "⏱️  총 실행 시간: ${DURATION}초"
-          echo "🎉 문서수 수집 작업 완료!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📈 실행 요약: OK=$TOTAL_OK FAIL=$TOTAL_FAIL TotalKeywords=$TOTAL_KEYWORDS"
+          echo "🎉 문서수 수집 완료!"

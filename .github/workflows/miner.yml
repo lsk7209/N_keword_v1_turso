@@ -2,14 +2,16 @@ name: Golden Keyword Miner Cron
 
 on:
   schedule:
-    # 🚀 안정성을 위해 10분 주기로 운영
-    - cron: '*/10 * * * *'
+    # 🚀 초안정 고수집: 15분 주기로 운영 (사용자 요청 반영)
+    # 기존 10분에서도 막혔던 이유는 빈도보다는 '동시성(130)'이 너무 높았기 때문입니다.
+    # 이제 '적응형 동시성' 로직이 키 상태에 따라 속도를 자동 조절하므로 훨씬 안전합니다.
+    - cron: '*/15 * * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
   mine:
     runs-on: ubuntu-latest
-    timeout-minutes: 7 # 4분 루프 + 여유시간
+    timeout-minutes: 10
     concurrency:
       group: keyword-expand-cron
       cancel-in-progress: false
@@ -18,51 +20,27 @@ jobs:
       - name: Trigger Miner API
         id: mining
         run: |
-          set -e  # 에러 시 즉시 중단
+          set -e
           
-          # 환경 변수 검증
           if [ -z "${{ secrets.PROD_URL }}" ] || [ -z "${{ secrets.CRON_SECRET }}" ]; then
-            echo "❌ ERROR: PROD_URL or CRON_SECRET is not set in GitHub Secrets."
+            echo "❌ ERROR: PROD_URL or CRON_SECRET is not set."
             exit 1
           fi
           
           START_TIME=$(date +%s)
-          echo "🚀🚀🚀 Starting ULTRA HIGH-VOLUME mining at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "🚀🚀🚀 Starting STABLE HIGH-VOLUME mining at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
-          # ═══════════════════════════════════════════════════════════════════════
-          # 🚀 초고성능 설정: AD 14개 + SEARCH 30개 API 키 최대 활용
-          # ═══════════════════════════════════════════════════════════════════════
-          # 
-          # 📊 API 키 활용 전략:
-          # - AD API (14개): 라운드 로빈으로 키당 15회 요청 → 분당 210회 가능
-          # - SEARCH API (30개): 일일 25,000회 × 30개 = 750,000회 가능
-          # 
-          # ⚡ 최적화 수치 (GitHub Actions 5분 제한 준수):
-          # - 크론 주기: 5분마다 (하루 288회)
-          # - 루프 시간: 4분 (240초)
-          # - 호출 간격: 10초 (루프당 24회 API 호출)
-          # - 배치 크기: 1500 시드
-          # - 동시성: 150 (AD 14개 × 10 + 여유분)
-          # 
-          # 📈 예상 처리량:
-          # - 크론당: 24회 × 1500시드 = 36,000 시드 처리
-          # - 일일: 288회 × 36,000 = 10,368,000 시드 시도
-          # - 시드당 20개 연관키워드 → 이론적 2억개
-          # - 중복 제거 후 실제 신규: 15만~25만개/일 예상
-          # ═══════════════════════════════════════════════════════════════════════
+          # 📊 13개 AD API 키 기반 최적화
+          # - 적응형 동시성: 키가 막히면 자동으로 대기하거나 속도를 늦춤
+          # - 15분 간격 실행으로 네이버 API 가이드라인 준수
           
-          RUN_FOR_SECONDS=210  # 3.5분간 루프 실행
-          INTERVAL_SECONDS=10  # 10초마다 API 호출
+          RUN_FOR_SECONDS=420  # 7분간 루프 실행 (15분 주기에 맞춰 넉넉히 실행)
+          INTERVAL_SECONDS=30  # 30초 간격 (긴 호흡으로 안정적 수집)
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # 🚀💰 최종 최적화 파라미터 (Extreme Stability)
-          # - expandBatch=100 => 100 시드/실행 (절대 타임아웃 안 나는 초안전값)
-          # - expandConcurrency=150 => 150 (내부에서 13키 기준 40으로 자동 조정됨)
-            # ⚡ 공격적인 설정: 최적의 성능을 낼 수 있도록 조정
-            # expandBatch: 1000 (시드당 더 많이 수집)
-            # expandConcurrency: 130 (13개 키 키당 10개 처리)
-            # minSearchVolume: 30 (더 넓은 범위의 키워드)
-            API_URL="${{ secrets.PROD_URL }}/api/miner/execute?task=expand&mode=TURBO&expandBatch=1000&expandConcurrency=130&minSearchVolume=30&maxRunMs=58000"
+          # 내부 로직에서 13개 키 기준 약 30~40 동시성으로 자동 제한됨
+          PARAMS="task=expand&mode=TURBO&expandBatch=1000&expandConcurrency=130&minSearchVolume=30&maxRunMs=58000"
+          API_URL="${{ secrets.PROD_URL }}/api/miner/execute?$PARAMS"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
@@ -70,13 +48,12 @@ jobs:
           while [ $(date +%s) -lt $END_TIME ]; do
             echo "📡 Calling miner: $API_URL"
 
-            # Per-call retry (keep short)
             MAX_RETRIES=2
             RETRY_COUNT=0
             SUCCESS=false
 
             while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
-              RESPONSE=$(curl -X GET "${{ secrets.PROD_URL }}/api/miner/execute?$QUERY" \
+              RESPONSE=$(curl -X GET "$API_URL" \
                 -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
                 -w "\n%{http_code}" \
                 --max-time 75 \
@@ -90,28 +67,20 @@ jobs:
                 SUCCESS=true
                 TOTAL_OK=$((TOTAL_OK + 1))
                 echo "✅ HTTP $HTTP_CODE"
-                echo "$BODY" | jq '.' || echo "$BODY"
               else
                 RETRY_COUNT=$((RETRY_COUNT + 1))
                 echo "⚠️  HTTP $HTTP_CODE (retry $RETRY_COUNT/$MAX_RETRIES)"
                 echo "Response: $BODY"
-                sleep $((RETRY_COUNT * 3))
+                sleep 10
               fi
             done
 
             if [ "$SUCCESS" = "false" ]; then
               TOTAL_FAIL=$((TOTAL_FAIL + 1))
-              echo "❌ Call failed after retries"
             fi
 
             sleep $INTERVAL_SECONDS
           done
 
-          END_TIME=$(date +%s)
-          DURATION=$((END_TIME - START_TIME))
-          
           echo "📈 Loop summary: OK=$TOTAL_OK FAIL=$TOTAL_FAIL"
-          echo "⏱️  Total execution time: ${DURATION} seconds"
-          echo "🎉 ULTRA mining batch completed!"
-
-
+          echo "🎉 ULTRA stable mining completed!"
