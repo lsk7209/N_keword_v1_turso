@@ -1,5 +1,5 @@
 import { getTursoClient, getCurrentTimestamp } from '@/utils/turso';
-import { processSeedKeyword, bulkDeferredInsert, Keyword } from '@/utils/mining-engine';
+import { processSeedKeyword, bulkDeferredInsert, Keyword, calculateTierAndRatio } from '@/utils/mining-engine';
 import { fetchDocumentCount } from '@/utils/naver-api';
 import { keyManager } from '@/utils/key-manager';
 
@@ -350,7 +350,7 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
                   SET total_doc_cnt = -2, updated_at = ? 
                   WHERE id IN (
                     SELECT id FROM keywords
-                    WHERE total_doc_cnt IS NULL
+                    WHERE (total_doc_cnt IS NULL) OR (tier = 'UNRANKED' AND total_doc_cnt > 0)
                     ORDER BY total_search_cnt DESC
                     LIMIT ?
                   )
@@ -391,7 +391,8 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
         }
         try {
             const counts = await fetchDocumentCount(item.keyword);
-            memoryDocUpdates.push({ id: item.id, counts });
+            const { tier, ratio } = calculateTierAndRatio(item.total_search_cnt, counts);
+            memoryDocUpdates.push({ id: item.id, counts, tier, ratio });
             return { status: 'fulfilled', item, counts };
         } catch (e: any) {
             console.error(`[BatchRunner] Error filling ${item.keyword}: ${e.message}`);
@@ -404,14 +405,14 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
         const CHUNK_SIZE = 200;
         for (let i = 0; i < memoryDocUpdates.length; i += CHUNK_SIZE) {
             const chunk = memoryDocUpdates.slice(i, i + CHUNK_SIZE);
-            const updateStatements = chunk.map(({ id, counts }) => ({
+            const updateStatements = chunk.map(({ id, counts, tier, ratio }) => ({
                 sql: `UPDATE keywords SET
                     total_doc_cnt = ?, blog_doc_cnt = ?, cafe_doc_cnt = ?,
-                    web_doc_cnt = ?, news_doc_cnt = ?, updated_at = ?
+                    web_doc_cnt = ?, news_doc_cnt = ?, tier = ?, golden_ratio = ?, updated_at = ?
                     WHERE id = ?`,
                 args: [
                     counts.total, counts.blog || 0, counts.cafe || 0,
-                    counts.web || 0, counts.news || 0, getCurrentTimestamp(), id
+                    counts.web || 0, counts.news || 0, tier, ratio, getCurrentTimestamp(), id
                 ]
             }));
 

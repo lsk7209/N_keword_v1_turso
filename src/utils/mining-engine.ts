@@ -46,6 +46,36 @@ export interface MiningResult {
     items: Keyword[]; // The fully processed items to return to UI
 }
 
+/**
+ * 🎯 황금키워드 티어 및 비율 계산 로직 (공용)
+ */
+export function calculateTierAndRatio(searchCnt: number, counts: Partial<DocCounts>): { tier: string; ratio: number } {
+    const viewDocCnt = (counts.blog || 0) + (counts.cafe || 0) + (counts.web || 0);
+    let ratio = 0;
+    let tier = 'UNRANKED';
+
+    if (viewDocCnt > 0) {
+        ratio = searchCnt / viewDocCnt;
+
+        if (viewDocCnt <= 100 && ratio > 5) {
+            tier = 'PLATINUM';
+        } else if (ratio > 10) {
+            tier = 'PLATINUM';
+        } else if (ratio > 5) {
+            tier = 'GOLD';
+        } else if (ratio > 1) {
+            tier = 'SILVER';
+        } else {
+            tier = 'BRONZE';
+        }
+    } else if (searchCnt > 0 && counts.total != null) {
+        tier = 'PLATINUM';
+        ratio = 99.99;
+    }
+
+    return { tier, ratio };
+}
+
 export async function processSeedKeyword(
     seedKeyword: string,
     limitDocCount = 0,
@@ -236,33 +266,7 @@ export async function processSeedKeyword(
 
         // 6. Process Results for Memory
         processedResults.forEach((r: Keyword & Partial<DocCounts>) => {
-            // Golden Ratio: 검색량 / (블로그 + 카페 + 웹 문서수)
-            // 뉴스는 제외 (SEO 경쟁 지표로 부적합)
-            const viewDocCnt = (r.blog || 0) + (r.cafe || 0) + (r.web || 0);
-
-            let ratio = 0;
-            let tier = 'UNRANKED';
-
-            if (viewDocCnt > 0) {
-                ratio = r.total_search_cnt / viewDocCnt;
-
-                // 등급 산정: PLATINUM, GOLD, SILVER, BRONZE
-                if (viewDocCnt <= 100 && ratio > 5) {
-                    tier = 'PLATINUM';  // 초고효율: 문서 100개 이하 + 비율 5 이상
-                } else if (ratio > 10) {
-                    tier = 'PLATINUM';  // 매우 높은 비율
-                } else if (ratio > 5) {
-                    tier = 'GOLD';      // 높은 비율
-                } else if (ratio > 1) {
-                    tier = 'SILVER';    // 보통 비율
-                } else {
-                    tier = 'BRONZE';    // 낮은 비율
-                }
-            } else if (r.total_search_cnt > 0 && r.total != null) {
-                // No view competition? PLATINUM!
-                tier = 'PLATINUM';
-                ratio = 99.99;
-            }
+            const { tier, ratio } = calculateTierAndRatio(r.total_search_cnt, r);
 
             memoryResults.push({
                 keyword: r.originalKeyword || r.keyword,
