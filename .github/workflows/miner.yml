@@ -2,9 +2,8 @@ name: Golden Keyword Miner Cron
 
 on:
   schedule:
-    # 🚀 안정적인 주기: 10분마다 실행 (각 실행이 4-5분 소요)
-    # GitHub Actions 크론의 한계를 고려하여 여유있게 설정
-    - cron: '*/15 * * * *'
+    # 🚀 안정성을 위해 10분 주기로 운영
+    - cron: '*/10 * * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -59,15 +58,17 @@ jobs:
           # 🚀💰 최종 최적화 파라미터 (Extreme Stability)
           # - expandBatch=100 => 100 시드/실행 (절대 타임아웃 안 나는 초안전값)
           # - expandConcurrency=150 => 150 (내부에서 13키 기준 40으로 자동 조정됨)
-          # - minSearchVolume=10 => 최소 검색량 10 (더 많은 롱테일 키워드)
-          # - maxRunMs=58000 => Vercel 60초 제한 고려
-          QUERY="task=expand&mode=TURBO&expandBatch=100&expandConcurrency=150&minSearchVolume=10&maxRunMs=58000"
+            # ⚡ 공격적인 설정: 최적의 성능을 낼 수 있도록 조정
+            # expandBatch: 1000 (시드당 더 많이 수집)
+            # expandConcurrency: 130 (13개 키 키당 10개 처리)
+            # minSearchVolume: 30 (더 넓은 범위의 키워드)
+            API_URL="${{ secrets.PROD_URL }}/api/miner/execute?task=expand&mode=TURBO&expandBatch=1000&expandConcurrency=130&minSearchVolume=30&maxRunMs=58000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0
 
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "📡 Calling miner: ${{ secrets.PROD_URL }}/api/miner/execute?$QUERY"
+            echo "📡 Calling miner: $API_URL"
 
             # Per-call retry (keep short)
             MAX_RETRIES=2

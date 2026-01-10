@@ -8,6 +8,14 @@
         {
             "path": "/api/cron/update-stats",
             "schedule": "0 * * * *"
+        },
+        {
+            "path": "/api/miner/execute?task=expand&expandBatch=500&expandConcurrency=100&minSearchVolume=30&maxRunMs=58000",
+            "schedule": "*/10 * * * *"
+        },
+        {
+            "path": "/api/miner/execute?task=fill_docs&fillBatch=500&fillConcurrency=150&maxRunMs=58000",
+            "schedule": "5-59/10 * * * *"
         }
     ],
     "headers": [

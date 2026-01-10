@@ -31,14 +31,33 @@ export async function GET(req: NextRequest) {
     const sort = searchParams.get('sort') || 'search_desc'; // search_desc, opp_desc, cafe_asc, blog_asc, web_asc, news_asc, tier_desc
     const minSearchVolumeParam = searchParams.get('minSearchVolume');
     const minSearchVolume = minSearchVolumeParam ? parseInt(minSearchVolumeParam, 10) : null;
+    const searchParam = searchParams.get('search');
+    const tiersParam = searchParams.get('tiers'); // comma separated: PLATINUM,GOLD
+    const tiers = tiersParam ? tiersParam.split(',') : [];
 
     const db = getTursoClient();
     // 문서수가 필요한 정렬: 등급순, 카페/블로그/웹/뉴스 적은순 (전체 조회 제외)
-    const requiresDocs = ['tier_desc', 'tier_asc', 'cafe_asc', 'blog_asc', 'web_asc', 'news_asc'].includes(sort);
+    // 단, 티어 필터가 있으면 문서수가 무조건 있어야 함 (티어는 문서수 기반이므로)
+    const requiresDocs = tiers.length > 0 || ['tier_desc', 'tier_asc', 'cafe_asc', 'blog_asc', 'web_asc', 'news_asc'].includes(sort);
 
     // Build WHERE clause
     const whereConditions: string[] = [];
-    
+    const args: any[] = [];
+
+    // 키워드 검색
+    if (searchParam) {
+        whereConditions.push(`keyword LIKE ?`);
+        args.push(`%${searchParam}%`);
+    }
+
+    // 티어 필터
+    if (tiers.length > 0) {
+        // Safe parameter injection for IN clause
+        const placeholders = tiers.map(() => '?').join(',');
+        whereConditions.push(`tier IN (${placeholders})`);
+        args.push(...tiers);
+    }
+
     // 문서수 필터 (정렬에 따라)
     if (requiresDocs) {
         if (sort === 'cafe_asc') {
@@ -58,12 +77,12 @@ export async function GET(req: NextRequest) {
             whereConditions.push('total_doc_cnt IS NOT NULL');
         }
     }
-    
+
     // 총검색량 필터
     if (minSearchVolume !== null && !isNaN(minSearchVolume) && minSearchVolume > 0) {
         whereConditions.push(`total_search_cnt >= ${minSearchVolume}`);
     }
-    
+
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     // Build ORDER BY clause
@@ -88,14 +107,17 @@ export async function GET(req: NextRequest) {
 
     // Get total count
     const countSql = `SELECT COUNT(*) as count FROM keywords ${whereClause}`;
-    const countResult = await db.execute(countSql);
+    const countResult = await db.execute({
+        sql: countSql,
+        args: args // Use collected args for WHERE conditions
+    });
     const total = countResult.rows[0]?.count as number || 0;
 
     // Get data with pagination
     const dataSql = `SELECT * FROM keywords ${whereClause} ${orderBy} LIMIT ? OFFSET ?`;
     const dataResult = await db.execute({
         sql: dataSql,
-        args: [limit, cursor]
+        args: [...args, limit, cursor] // WHERE args + LIMIT + OFFSET
     });
 
     const data = dataResult.rows.map(row => ({

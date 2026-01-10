@@ -130,6 +130,17 @@ export default function DataPage() {
         }
     };
 
+    const [searchKeyword, setSearchKeyword] = useState('');
+    const [selectedTiers, setSelectedTiers] = useState<string[]>([]);
+
+    const toggleTier = (tier: string) => {
+        if (selectedTiers.includes(tier)) {
+            setSelectedTiers(prev => prev.filter(t => t !== tier));
+        } else {
+            setSelectedTiers(prev => [...prev, tier]);
+        }
+    };
+
     return (
         <main className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 p-4 md:p-8 font-sans">
             <div className="max-w-7xl mx-auto space-y-6">
@@ -145,97 +156,125 @@ export default function DataPage() {
                             전체 수집된 키워드 목록을 조회하고 검색합니다.
                         </p>
                     </div>
+                    {/* Search Bar */}
+                    <div className="relative w-full md:w-96">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <span className="text-zinc-400">🔍</span>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="키워드 검색 (예: 공기청정기)"
+                            value={searchKeyword}
+                            onChange={(e) => setSearchKeyword(e.target.value)}
+                            className="block w-full pl-10 pr-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg leading-5 bg-white dark:bg-zinc-800 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-shadow shadow-sm"
+                        />
+                    </div>
                 </header>
 
                 {/* Main List */}
                 <div className="space-y-4">
-                    <div className="flex flex-wrap gap-2 justify-between items-center">
-                        <div className="flex flex-wrap gap-2 items-center">
-                            {/* 총검색량 필터 */}
-                            <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md">
-                                <Filter className="w-4 h-4 text-zinc-500" />
-                                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap">총검색량 이상:</span>
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="text"
-                                        value={inputValue}
-                                        onChange={handleInputChange}
-                                        onKeyPress={handleKeyPress}
-                                        placeholder="숫자 입력"
-                                        className="w-24 px-2 py-1 text-sm border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                    <button
-                                        onClick={handleApplyFilter}
-                                        className="px-3 py-1 rounded text-xs font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700"
-                                    >
-                                        적용
-                                    </button>
-                                    {minSearchVolume !== null && (
+                    <div className="flex flex-col gap-4">
+                        {/* Filters Row 1: Search Vol & Export */}
+                        <div className="flex flex-wrap gap-2 justify-between items-center">
+                            <div className="flex flex-wrap gap-2 items-center">
+                                {/* 총검색량 필터 */}
+                                <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md shadow-sm">
+                                    <Filter className="w-4 h-4 text-zinc-500" />
+                                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap">총검색량:</span>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            value={inputValue}
+                                            onChange={handleInputChange}
+                                            onKeyPress={handleKeyPress}
+                                            placeholder="1000"
+                                            className="w-20 px-2 py-1 text-sm border border-zinc-300 dark:border-zinc-700 rounded bg-zinc-50 dark:bg-zinc-800 text-center"
+                                        />
                                         <button
-                                            onClick={() => handleMinSearchVolumeChange(null)}
-                                            className="px-3 py-1 rounded text-xs font-medium transition-colors bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-600"
+                                            onClick={handleApplyFilter}
+                                            className="px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300"
                                         >
-                                            초기화
+                                            적용
                                         </button>
-                                    )}
+                                        {minSearchVolume !== null && (
+                                            <button
+                                                onClick={() => handleMinSearchVolumeChange(null)}
+                                                className="text-zinc-400 hover:text-zinc-600"
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                                {minSearchVolume !== null && (
-                                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                                        ({minSearchVolume.toLocaleString()} 이상)
-                                    </span>
-                                )}
+
+                                <div className="flex flex-wrap gap-2">
+                                    {/* Tier Filters */}
+                                    <div className="flex items-center gap-1 p-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md shadow-sm">
+                                        {[
+                                            { id: 'PLATINUM', label: 'Platinum', color: 'cyan' },
+                                            { id: 'GOLD', label: 'Gold', color: 'yellow' },
+                                            { id: 'SILVER', label: 'Silver', color: 'slate' },
+                                            { id: 'BRONZE', label: 'Bronze', color: 'orange' },
+                                        ].map(tier => (
+                                            <button
+                                                key={tier.id}
+                                                onClick={() => toggleTier(tier.id)}
+                                                className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${selectedTiers.includes(tier.id)
+                                                        ? tier.id === 'PLATINUM' ? 'bg-cyan-500 text-white shadow-md'
+                                                            : tier.id === 'GOLD' ? 'bg-yellow-500 text-white shadow-md'
+                                                                : tier.id === 'SILVER' ? 'bg-slate-500 text-white shadow-md'
+                                                                    : 'bg-orange-500 text-white shadow-md'
+                                                        : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500'
+                                                    }`}
+                                            >
+                                                {tier.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
 
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    onClick={downloadExcelFirstPage}
-                                    className="px-4 py-2 rounded-md text-sm font-medium transition-colors bg-slate-700 text-white hover:bg-slate-800"
-                                >
-                                    엑셀 내보내기 (1페이지 100개)
-                                </button>
+                            <div className="flex flex-wrap gap-2 justify-end">
                                 <button
                                     onClick={downloadExcelAll}
                                     disabled={isExportingAll}
-                                    className="px-4 py-2 rounded-md text-sm font-medium transition-colors bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    className="px-4 py-2 rounded-md text-sm font-medium transition-colors bg-green-600 text-white hover:bg-green-700 shadow-sm disabled:opacity-50"
                                 >
-                                    {isExportingAll ? '전체 내보내는 중...' : '엑셀 내보내기 (전체)'}
+                                    {isExportingAll ? '다운로드 중...' : '엑셀 다운로드 (전체)'}
                                 </button>
                             </div>
                         </div>
 
-                        <div className="flex flex-wrap gap-2 justify-end">
-                        <button
-                            onClick={() => onChangeSort('search_desc')}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'search_desc' ? 'bg-black text-white dark:bg-white dark:text-black' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-800'}`}
-                        >
-                            전체 조회 (검색량순)
-                        </button>
-                        <button
-                            onClick={() => onChangeSort(sort === 'tier_desc' ? 'tier_asc' : 'tier_desc')}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === 'tier_desc' || sort === 'tier_asc' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-800'}`}
-                        >
-                            💎 등급순 {sort === 'tier_asc' ? '↑' : '↓'}
-                        </button>
-                        {[
-                            { key: 'cafe_asc', label: '카페 적은순' },
-                            { key: 'blog_asc', label: '블로그 적은순' },
-                            { key: 'web_asc', label: '웹 적은순' },
-                            { key: 'news_asc', label: '뉴스 적은순' },
-                        ].map((item) => (
+                        {/* Sort Buttons */}
+                        <div className="flex flex-wrap gap-2 pb-2 overflow-x-auto">
                             <button
-                                key={item.key}
-                                onClick={() => onChangeSort(item.key)}
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sort === item.key ? 'bg-emerald-600 text-white' : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-800'}`}
+                                onClick={() => onChangeSort('search_desc')}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors border ${sort === 'search_desc' ? 'bg-zinc-900 text-white border-zinc-900 dark:bg-white dark:text-black' : 'bg-transparent text-zinc-500 border-zinc-200 dark:border-zinc-700'}`}
                             >
-                                {item.label}
+                                검색량순
                             </button>
-                        ))}
+                            <button
+                                onClick={() => onChangeSort(sort === 'tier_desc' ? 'tier_asc' : 'tier_desc')}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors border ${sort.includes('tier') ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-transparent text-zinc-500 border-zinc-200 dark:border-zinc-700'}`}
+                            >
+                                💎 등급순 {sort === 'tier_asc' ? '↑' : '↓'}
+                            </button>
+                            {[
+                                { key: 'cafe_asc', label: '카페 경쟁↓' },
+                                { key: 'blog_asc', label: '블로그 경쟁↓' },
+                            ].map((item) => (
+                                <button
+                                    key={item.key}
+                                    onClick={() => onChangeSort(item.key)}
+                                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors border ${sort === item.key ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-transparent text-zinc-500 border-zinc-200 dark:border-zinc-700'}`}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
                         </div>
                     </div>
 
-
-
-                    <KeywordList sort={sort} minSearchVolume={minSearchVolume} />
+                    <KeywordList sort={sort} minSearchVolume={minSearchVolume} search={searchKeyword} tiers={selectedTiers} />
                 </div>
             </div>
         </main>

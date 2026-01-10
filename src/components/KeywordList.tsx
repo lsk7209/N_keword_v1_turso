@@ -4,15 +4,16 @@ import { useState, useEffect, useRef } from 'react';
 import { Loader2, ChevronDown } from 'lucide-react';
 
 // Fetcher function - page-based pagination
-const fetchKeywords = async ({ page = 1, limit = 100, sort = 'search_desc', minSearchVolume = null }: { page: number; limit: number; sort: string; minSearchVolume: number | null }) => {
+const fetchKeywords = async ({ page = 1, limit = 100, sort = 'search_desc', minSearchVolume = null, search = '', tiers = [] }: any) => {
     const params = new URLSearchParams({
         page: String(page),
         limit: String(limit),
         sort,
     });
-    if (minSearchVolume !== null) {
-        params.append('minSearchVolume', String(minSearchVolume));
-    }
+    if (minSearchVolume !== null) params.append('minSearchVolume', String(minSearchVolume));
+    if (search) params.append('search', search);
+    if (tiers.length > 0) params.append('tiers', tiers.join(','));
+
     const res = await fetch(`/api/keywords?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch');
     return res.json();
@@ -42,9 +43,13 @@ interface Keyword {
 export default function KeywordList({
     sort,
     minSearchVolume = null,
+    search = '',
+    tiers = []
 }: {
     sort: string;
     minSearchVolume?: number | null;
+    search?: string;
+    tiers?: string[];
 }) {
     const [keywords, setKeywords] = useState<Keyword[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
@@ -62,7 +67,7 @@ export default function KeywordList({
             setIsLoading(true);
             setError(null);
             try {
-                const result = await fetchKeywords({ page: 1, limit: pageSize, sort, minSearchVolume: minSearchVolume || null });
+                const result = await fetchKeywords({ page: 1, limit: pageSize, sort, minSearchVolume: minSearchVolume || null, search, tiers });
                 setKeywords(result.data || []);
                 setTotal(result.total || 0);
                 setHasMore(result.data && result.data.length === pageSize);
@@ -74,8 +79,9 @@ export default function KeywordList({
             }
         };
 
-        loadInitialData();
-    }, [sort, minSearchVolume]);
+        const timeoutId = setTimeout(loadInitialData, 300); // 300ms debounce for search
+        return () => clearTimeout(timeoutId);
+    }, [sort, minSearchVolume, search, tiers.join(',')]);
 
     // Load more function
     const loadMore = async () => {
@@ -84,8 +90,8 @@ export default function KeywordList({
         setIsLoadingMore(true);
         try {
             const nextPage = currentPage + 1;
-            const result = await fetchKeywords({ page: nextPage, limit: pageSize, sort, minSearchVolume: minSearchVolume || null });
-            
+            const result = await fetchKeywords({ page: nextPage, limit: pageSize, sort, minSearchVolume: minSearchVolume || null, search, tiers });
+
             if (result.data && result.data.length > 0) {
                 setKeywords(prev => [...prev, ...result.data]);
                 setCurrentPage(nextPage);
@@ -102,21 +108,25 @@ export default function KeywordList({
 
     // Fixed widths for columns
     const colWidths = {
-        keyword: 'w-[200px] md:w-[240px]',
-        search: 'w-[110px]',
+        keyword: 'w-[180px] md:w-[220px]',
+        search: 'w-[100px]',
         click: 'w-[90px]',
         ctr: 'w-[80px]',
         comp: 'w-[80px]',
         doc: 'w-[95px]',
         ratio: 'w-[80px]',
-        tier: 'w-[100px]',
+        tier: 'w-[90px]',
     };
 
-    const HeaderCell = ({ label, width, align = 'right' }: { label: string; width: string; align?: 'left' | 'center' | 'right' }) => (
-        <div className={`${width} shrink-0 px-2 py-3 text-${align} font-semibold text-zinc-500 uppercase tracking-wider text-xs sm:text-sm`}>
+    const HeaderCell = ({ label, width, align = 'right', className = '' }: { label: string; width: string; align?: 'left' | 'center' | 'right'; className?: string }) => (
+        <div className={`${width} shrink-0 px-2 py-3 text-${align} font-semibold text-zinc-500 uppercase tracking-wider text-xs sm:text-sm bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 ${className}`}>
             {label}
         </div>
     );
+
+    // Updated Sticky Header: Moved sticky logic to `HeaderCell` usage below for better control or keeping it simple here.
+    // Actually, sticky column needs to be on the cell itself.
+
 
     const DataCell = ({
         value,
@@ -160,7 +170,7 @@ export default function KeywordList({
             {/* Header Info */}
             <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
                 <div className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400">
-                    표시 중: <span className="font-semibold text-zinc-700 dark:text-zinc-200">{keywords.length.toLocaleString()}</span>개 / 
+                    표시 중: <span className="font-semibold text-zinc-700 dark:text-zinc-200">{keywords.length.toLocaleString()}</span>개 /
                     총 <span className="font-semibold text-zinc-700 dark:text-zinc-200">{total.toLocaleString()}</span>개
                 </div>
                 {isLoadingMore && (
@@ -176,14 +186,14 @@ export default function KeywordList({
                 <div className="min-w-max">
                     {/* Header */}
                     <div className="flex items-center bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 sticky top-0 z-20">
-                        <HeaderCell label="키워드" width={colWidths.keyword} align="left" />
+                        <HeaderCell label="키워드" width={colWidths.keyword} align="left" className="sticky left-0 z-30 shadow-[1px_0_0_0_rgba(0,0,0,0.1)] dark:shadow-[1px_0_0_0_rgba(255,255,255,0.1)]" />
+                        <HeaderCell label="등급" width={colWidths.tier} align="center" />
                         <HeaderCell label="총검색량" width={colWidths.search} />
+                        <HeaderCell label="비율" width={colWidths.ratio} />
                         <HeaderCell label="블로그" width={colWidths.doc} />
                         <HeaderCell label="카페" width={colWidths.doc} />
                         <HeaderCell label="웹" width={colWidths.doc} />
                         <HeaderCell label="뉴스" width={colWidths.doc} />
-                        <HeaderCell label="비율" width={colWidths.ratio} />
-                        <HeaderCell label="등급" width={colWidths.tier} align="center" />
                         <HeaderCell label="PC 검색" width={colWidths.search} />
                         <HeaderCell label="MO 검색" width={colWidths.search} />
                         <HeaderCell label="PC 클릭" width={colWidths.click} />
@@ -206,33 +216,33 @@ export default function KeywordList({
                                     key={post.id || post.keyword}
                                     className="flex items-center hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors border-b border-zinc-100 dark:border-zinc-800"
                                 >
-                                    <DataCell 
-                                        value={post.keyword} 
-                                        width={colWidths.keyword} 
-                                        align="left" 
-                                        className="font-medium text-zinc-900 dark:text-zinc-100" 
-                                        title={post.keyword} 
+                                    <DataCell
+                                        value={post.keyword}
+                                        width={colWidths.keyword}
+                                        align="left"
+                                        className="font-bold text-zinc-900 dark:text-zinc-100 sticky left-0 bg-white dark:bg-zinc-900 z-10 shadow-[1px_0_0_0_rgba(0,0,0,0.1)] dark:shadow-[1px_0_0_0_rgba(255,255,255,0.1)]"
+                                        title={post.keyword}
                                     />
-                                    <DataCell value={post.total_search_cnt?.toLocaleString()} width={colWidths.search} />
-                                    <DataCell value={post.blog_doc_cnt?.toLocaleString()} width={colWidths.doc} />
-                                    <DataCell value={post.cafe_doc_cnt?.toLocaleString()} width={colWidths.doc} />
-                                    <DataCell value={post.web_doc_cnt?.toLocaleString()} width={colWidths.doc} />
-                                    <DataCell value={post.news_doc_cnt?.toLocaleString()} width={colWidths.doc} />
-                                    <DataCell 
-                                        value={typeof post.golden_ratio === 'number' ? post.golden_ratio.toFixed(2) : ''} 
-                                        width={colWidths.ratio} 
-                                        className="font-semibold text-emerald-600" 
-                                    />
-                                    <div className={`${colWidths.tier} flex justify-center`}>
+                                    <div className={`${colWidths.tier} flex justify-center shrink-0`}>
                                         <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold 
-                                            ${post.tier === 'PLATINUM' ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300' :
-                                                post.tier === 'GOLD' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' :
-                                                    post.tier === 'SILVER' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' :
+                                            ${post.tier === 'PLATINUM' ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300 ring-1 ring-cyan-200 dark:ring-cyan-800' :
+                                                post.tier === 'GOLD' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300 ring-1 ring-yellow-200 dark:ring-yellow-800' :
+                                                    post.tier === 'SILVER' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-700' :
                                                         post.tier === 'ERROR' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' :
                                                             'bg-orange-50 text-orange-800 dark:bg-orange-900 dark:text-orange-300'}`}>
                                             {post.tier || 'UNRANKED'}
                                         </span>
                                     </div>
+                                    <DataCell value={post.total_search_cnt?.toLocaleString()} width={colWidths.search} />
+                                    <DataCell
+                                        value={typeof post.golden_ratio === 'number' ? post.golden_ratio.toFixed(2) : ''}
+                                        width={colWidths.ratio}
+                                        className="font-semibold text-emerald-600"
+                                    />
+                                    <DataCell value={post.blog_doc_cnt?.toLocaleString()} width={colWidths.doc} />
+                                    <DataCell value={post.cafe_doc_cnt?.toLocaleString()} width={colWidths.doc} />
+                                    <DataCell value={post.web_doc_cnt?.toLocaleString()} width={colWidths.doc} />
+                                    <DataCell value={post.news_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                     <DataCell value={post.pc_search_cnt?.toLocaleString()} width={colWidths.search} />
                                     <DataCell value={post.mo_search_cnt?.toLocaleString()} width={colWidths.search} />
                                     <DataCell value={post.pc_click_cnt?.toLocaleString()} width={colWidths.click} />

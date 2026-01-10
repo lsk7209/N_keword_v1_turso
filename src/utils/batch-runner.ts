@@ -112,13 +112,17 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const safeFillBatchCap = FILL_DOCS_CONCURRENCY * 5;
 
     const expandBatchBase = Math.max(10, EXPAND_CONCURRENCY * 2);
-    const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5);
+    const EXPAND_BATCH_DEFAULT = 1000; // 500 -> 1000 상향
+    const FILL_BATCH_DEFAULT = 1000;   // 500 -> 1000 상향
+    const expandBatchBase = Math.max(10, EXPAND_CONCURRENCY * 2, EXPAND_BATCH_DEFAULT);
+    const fillDocsBatchBase = Math.max(200, FILL_DOCS_CONCURRENCY * 5, FILL_BATCH_DEFAULT);
 
     // Clamp requested batch to safe cap
     const EXPAND_BATCH = clampInt(options.expandBatch, 1, safeExpandBatchCap, expandBatchBase);
     const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, safeFillBatchCap, fillDocsBatchBase);
 
-    const MIN_SEARCH_VOLUME = Math.max(100, clampInt(options.minSearchVolume, 0, 50_000, 100));
+    const MIN_SEARCH_VOLUME_DEFAULT_VAL = 30; // 100 -> 30으로 하향하여 더 많은 키워드 수집
+    const MIN_SEARCH_VOLUME = Math.max(10, clampInt(options.minSearchVolume, 0, 50_000, MIN_SEARCH_VOLUME_DEFAULT_VAL)); // Math.max(100) 제거하여 더 넓은 범위 지원
 
     console.log(`[BatchRunner] Mode: ${mode}, Keys(S/A): ${searchKeyCount}/${adKeyCount}, Task: ${task}`);
     console.log(`[BatchRunner] Config: Expand(Batch:${EXPAND_BATCH}, Conc:${EXPAND_CONCURRENCY}), FillDocs(Batch:${FILL_DOCS_BATCH}, Conc:${FILL_DOCS_CONCURRENCY}), MaxRunMs: ${maxRunMs}`);
@@ -192,21 +196,50 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     try {
         // ⚠️ ROLLBACK: UPDATE...RETURNING + 서브쿼리가 Turso에서 작동 안 함
         // 안정적인 SELECT + UPDATE 패턴 사용
-        const selectResult = await db.execute({
-            sql: `SELECT id, keyword, total_search_cnt FROM keywords
-                  WHERE (is_expanded = 0)
-                  ORDER BY total_search_cnt DESC
-                  LIMIT ?`,
-            args: [Math.min(batchSize, 1000)]
+        // 🚀 Zero-Read Claim: UPDATE ... RETURNING 패턴 사용 (Read 1회 절감)
+        const topSeedsCount = Math.floor(batchSize * 0.7);
+        const randomSeedsCount = batchSize - topSeedsCount;
+
+        // 1. TOP 70% 시드 Claim
+        const topClaim = await db.execute({
+            sql: `UPDATE keywords 
+                  SET is_expanded = 2, updated_at = ? 
+                  WHERE id IN (
+                    SELECT id FROM keywords 
+                    WHERE is_expanded = 0 AND total_search_cnt >= 200 
+                    ORDER BY total_search_cnt DESC LIMIT ?
+                  )
+                  RETURNING id, keyword, total_search_cnt`,
+            args: [getCurrentTimestamp(), topSeedsCount]
         });
 
-        seedsData = selectResult.rows.map(row => ({
+        // 2. RANDOM 30% 시드 Claim
+        const randomClaim = await db.execute({
+            sql: `UPDATE keywords 
+                  SET is_expanded = 2, updated_at = ? 
+                  WHERE id IN (
+                    SELECT id FROM keywords 
+                    WHERE is_expanded = 0 AND total_search_cnt >= 50 
+                    ORDER BY RANDOM() LIMIT ?
+                  )
+                  RETURNING id, keyword, total_search_cnt`,
+            args: [getCurrentTimestamp(), randomSeedsCount]
+        });
+
+        const selectedSeeds = [...topClaim.rows, ...randomClaim.rows];
+
+        if (selectedSeeds.length === 0) {
+            console.log('[BatchRunner] ⚠️ No more unexpanded keywords found with criteria.');
+            return { processedSeeds: 0, totalSaved: 0, details: [] };
+        }
+
+        seedsData = selectedSeeds.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        console.log(`[Expand] ✅ Fetched ${seedsData.length} seeds (No-Write Claim)`);
+        console.log(`[Expand] ✅ Zero-Read Claim: ${seedsData.length} seeds`);
     } catch (err: any) {
         console.error('[Expand] Failed to claim seeds:', err.message);
         return null;
@@ -310,24 +343,29 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 🎯 ZERO-READ CLAIM: UPDATE...RETURNING 패턴
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🚀 Zero-Read Claim: UPDATE ... RETURNING 패턴 사용 (Read 1회 절감)
     let docsToFill: SeedItem[] = [];
     try {
-        // ⚠️ ROLLBACK: SELECT + UPDATE 패턴 (Turso 호환)
-        const selectResult = await db.execute({
-            sql: `SELECT id, keyword, total_search_cnt FROM keywords
-                  WHERE (total_doc_cnt IS NULL)
-                  ORDER BY total_search_cnt DESC
-                  LIMIT ?`,
-            args: [Math.min(batchSize, 1000)]
+        const claimResult = await db.execute({
+            sql: `UPDATE keywords 
+                  SET total_doc_cnt = -2, updated_at = ? 
+                  WHERE id IN (
+                    SELECT id FROM keywords
+                    WHERE total_doc_cnt IS NULL
+                    ORDER BY total_search_cnt DESC
+                    LIMIT ?
+                  )
+                  RETURNING id, keyword, total_search_cnt`,
+            args: [getCurrentTimestamp(), Math.min(batchSize, 1000)]
         });
 
-        docsToFill = selectResult.rows.map(row => ({
+        docsToFill = claimResult.rows.map(row => ({
             id: row.id as string,
             keyword: row.keyword as string,
             total_search_cnt: row.total_search_cnt as number
         }));
 
-        console.log(`[FillDocs] ✅ Fetched ${docsToFill.length} keywords (No-Write Claim)`);
+        console.log(`[FillDocs] ✅ Zero-Read Claim: ${docsToFill.length} keywords`);
     } catch (err: any) {
         console.error('[FillDocs] Failed to claim keywords:', err.message);
         return null;

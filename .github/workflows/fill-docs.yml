@@ -2,11 +2,9 @@ name: 📄 문서수 수집 크론 (Document Count Collection)
 
 on:
   schedule:
-    # ✅ 안정성 우선: 15분마다 실행 (Search API 복구 고려)
-    # miner.yml: */10 * * * * (0, 10, 20, 30, ...)
-    # fill-docs.yml: */15 * * * * (0, 15, 30, 45) - 충분한 간격
-    - cron: '*/5 * * * *'
-  workflow_dispatch: # 수동 실행 가능
+    # 🚀 안정성을 위해 10분 주기로 운영
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allow manual trigger가능
 
 jobs:
   fill_docs:
@@ -59,12 +57,10 @@ jobs:
           INTERVAL_SECONDS=10  # 10초마다 API 호출
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # ✅ 안정성 최우선 파라미터 (뉴스 수집 포함 시 부하 고려)
-          # - fillBatch=600 => 30개 키면 충분히 소화 가능 (QPS 여유)
-          # - fillConcurrency=100 => 동시성 확대 (30개 키 * 3.3)
-          # - maxRunMs=55000 => Vercel 60초 제한 고려
-          # 80%+ 성공률 목표, 안정화 후 점진적 증가
-          QUERY="task=fill_docs&fillBatch=600&fillConcurrency=100&maxRunMs=55000"
+          # ⚡ 공격적인 설정: 최적의 성능을 낼 수 있도록 조정
+          # fillBatch: 1000 (한 번에 1000개 수집)
+          # fillConcurrency: 480 (검색 API 30개 기준)
+          API_URL="${{ secrets.PROD_URL }}/api/miner/execute?task=fill_docs&mode=TURBO&fillBatch=1000&fillConcurrency=480&maxRunMs=58000"
 
           TOTAL_OK=0
           TOTAL_FAIL=0

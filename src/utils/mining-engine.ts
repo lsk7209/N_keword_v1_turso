@@ -335,7 +335,7 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
         console.warn('[MiningEngine] Bloom filter load failed, falling back to hybrid:', e);
     }
 
-    const BATCH_SIZE = 500; // Reduced to 500 for safety
+    const BATCH_SIZE = 100; // 최적의 원자성을 보장하는 배치 크기 (Turso 최적화)
     let totalUpserted = 0;
     let totalSkipped = 0;
     let bloomSavedCount = 0;
@@ -426,7 +426,10 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
                 news_doc_cnt = COALESCE(excluded.news_doc_cnt, news_doc_cnt),
                 golden_ratio = COALESCE(excluded.golden_ratio, golden_ratio),
                 tier = COALESCE(excluded.tier, tier),
-                updated_at = excluded.updated_at;`,
+                updated_at = excluded.updated_at
+            WHERE (keywords.total_search_cnt != excluded.total_search_cnt) 
+               OR (keywords.total_doc_cnt IS NULL AND excluded.total_doc_cnt IS NOT NULL)
+               OR (keywords.tier = 'UNRANKED' AND excluded.tier != 'UNRANKED');`,
             args: [
                 kw.id || generateUUID(),
                 kw.keyword, kw.total_search_cnt, kw.pc_search_cnt || 0, kw.mo_search_cnt || 0,
