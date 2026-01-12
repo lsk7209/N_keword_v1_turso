@@ -220,11 +220,11 @@ export default function DataPage() {
                                                 key={tier.id}
                                                 onClick={() => toggleTier(tier.id)}
                                                 className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${selectedTiers.includes(tier.id)
-                                                        ? tier.id === 'PLATINUM' ? 'bg-cyan-500 text-white shadow-md'
-                                                            : tier.id === 'GOLD' ? 'bg-yellow-500 text-white shadow-md'
-                                                                : tier.id === 'SILVER' ? 'bg-slate-500 text-white shadow-md'
-                                                                    : 'bg-orange-500 text-white shadow-md'
-                                                        : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500'
+                                                    ? tier.id === 'PLATINUM' ? 'bg-cyan-500 text-white shadow-md'
+                                                        : tier.id === 'GOLD' ? 'bg-yellow-500 text-white shadow-md'
+                                                            : tier.id === 'SILVER' ? 'bg-slate-500 text-white shadow-md'
+                                                                : 'bg-orange-500 text-white shadow-md'
+                                                    : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500'
                                                     }`}
                                             >
                                                 {tier.label}
@@ -262,6 +262,7 @@ export default function DataPage() {
                             {[
                                 { key: 'cafe_asc', label: '카페 경쟁↓' },
                                 { key: 'blog_asc', label: '블로그 경쟁↓' },
+                                { key: 'web_asc', label: '웹 경쟁↓' },
                             ].map((item) => (
                                 <button
                                     key={item.key}
