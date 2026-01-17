@@ -2,9 +2,9 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
-import { getTursoClient } from '../src/utils/turso';
-import { BloomFilter } from '../src/utils/bloom-filter';
-import { BloomManager } from '../src/utils/bloom-manager';
+import { getTursoClient } from '@/utils/turso';
+import { BloomFilter } from '@/utils/bloom-filter';
+import { BloomManager } from '@/utils/bloom-manager';
 
 async function initBloom() {
     const db = getTursoClient();

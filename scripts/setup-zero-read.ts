@@ -8,8 +8,8 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
-import { getTursoClient } from '../src/utils/turso';
-import { keywordCache } from '../src/utils/keyword-cache';
+import { getTursoClient } from '@/utils/turso';
+import { keywordCache } from '@/utils/keyword-cache';
 import fs from 'fs';
 import path from 'path';
 

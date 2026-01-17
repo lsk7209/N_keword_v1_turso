@@ -1,7 +1,7 @@
 
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
-import { processSeedKeyword } from '../src/utils/mining-engine';
+import { processSeedKeyword } from '@/utils/mining-engine';
 
 async function checkApi() {
     console.log('🔍 Checking Naver API availability...');

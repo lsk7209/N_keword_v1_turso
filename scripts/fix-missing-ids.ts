@@ -1,5 +1,5 @@
 
-import { getTursoClient, generateUUID } from '../src/utils/turso';
+import { getTursoClient, generateUUID } from '@/utils/turso';
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 

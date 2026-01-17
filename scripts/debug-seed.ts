@@ -1,7 +1,7 @@
 
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
-import { processSeedKeyword, bulkDeferredInsert } from '../src/utils/mining-engine';
+import { processSeedKeyword, bulkDeferredInsert } from '@/utils/mining-engine';
 
 async function debugSeed() {
     const seed = '유튜브'; // 인기 키워드 (이미 많이 캤을 것)

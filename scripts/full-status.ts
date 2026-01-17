@@ -1,7 +1,7 @@
 
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
-import { getTursoClient } from '../src/utils/turso';
+import { getTursoClient } from '@/utils/turso';
 
 async function fullStatus() {
     const db = getTursoClient();

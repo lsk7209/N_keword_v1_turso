@@ -1,4 +1,4 @@
-import { getTursoClient } from '../src/utils/turso';
+import { getTursoClient } from '@/utils/turso';
 import dotenv from 'dotenv';
 import { resolve } from 'path';
 

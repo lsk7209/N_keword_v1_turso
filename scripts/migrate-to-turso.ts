@@ -13,7 +13,7 @@ import dotenv from 'dotenv';
 import { resolve } from 'path';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createClient as createTursoClient } from '@libsql/client';
-import { generateUUID } from '../src/utils/turso';
+import { generateUUID } from '@/utils/turso';
 
 // .env.local 파일 로드
 dotenv.config({ path: resolve(process.cwd(), '.env.local') });

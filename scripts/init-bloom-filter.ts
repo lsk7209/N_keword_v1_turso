@@ -1,6 +1,6 @@
 
-import { getTursoClient } from '../src/utils/turso';
-import { BloomManager } from '../src/utils/bloom-manager';
+import { getTursoClient } from '@/utils/turso';
+import { BloomManager } from '@/utils/bloom-manager';
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 

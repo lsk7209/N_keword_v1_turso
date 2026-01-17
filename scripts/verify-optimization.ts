@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { resolve } from 'path';
 dotenv.config({ path: resolve(process.cwd(), '.env.local') });
 
-import { runMiningBatch } from '../src/utils/batch-runner';
+import { runMiningBatch } from '@/utils/batch-runner';
 
 async function main() {
     console.log('🧪 Verifying Optimization Logic...');

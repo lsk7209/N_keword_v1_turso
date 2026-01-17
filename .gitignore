@@ -39,3 +39,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# backup files
+*.backup
+*.backup2
+
+# temp output files
+*-output.txt
+*-status.txt
+schema.txt
+schema_utf8.txt
+
+# temp json outputs
+indexes.json
+indexes_utf8.json

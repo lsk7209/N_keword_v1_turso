@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { resolve } from 'path';
 dotenv.config({ path: resolve(process.cwd(), '.env.local') });
 
-import { getTursoClient } from '../src/utils/turso';
+import { getTursoClient } from '@/utils/turso';
 
 async function recalcTiers() {
     const db = getTursoClient();
