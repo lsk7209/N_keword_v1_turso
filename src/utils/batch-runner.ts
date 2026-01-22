@@ -364,7 +364,7 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
                   SET total_doc_cnt = -2, updated_at = ? 
                   WHERE id IN (
                     SELECT id FROM keywords
-                    WHERE (total_doc_cnt IS NULL) OR (tier = 'UNRANKED' AND total_doc_cnt > 0)
+                    WHERE total_doc_cnt IS NULL
                     ORDER BY total_search_cnt DESC
                     LIMIT ?
                   )
