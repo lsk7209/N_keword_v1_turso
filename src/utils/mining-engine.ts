@@ -410,47 +410,79 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
 
         if (toUpsert.length === 0) continue;
 
-        // Execute Upsert for (High Volume + New Low Volume)
-        const statements = toUpsert.map(kw => ({
-            sql: `INSERT INTO keywords (
-                id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
-                pc_click_cnt, mo_click_cnt, click_cnt, pc_ctr, mo_ctr, total_ctr,
-                comp_idx, pl_avg_depth, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
-                web_doc_cnt, news_doc_cnt, golden_ratio, tier, is_expanded,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(keyword) DO UPDATE SET
-                total_search_cnt = excluded.total_search_cnt,
-                pc_search_cnt = excluded.pc_search_cnt,
-                mo_search_cnt = excluded.mo_search_cnt,
-                total_doc_cnt = COALESCE(excluded.total_doc_cnt, total_doc_cnt),
-                blog_doc_cnt = COALESCE(excluded.blog_doc_cnt, blog_doc_cnt),
-                cafe_doc_cnt = COALESCE(excluded.cafe_doc_cnt, cafe_doc_cnt),
-                web_doc_cnt = COALESCE(excluded.web_doc_cnt, web_doc_cnt),
-                news_doc_cnt = COALESCE(excluded.news_doc_cnt, news_doc_cnt),
-                golden_ratio = COALESCE(excluded.golden_ratio, golden_ratio),
-                tier = COALESCE(excluded.tier, tier),
-                updated_at = excluded.updated_at
-            WHERE (keywords.total_search_cnt != excluded.total_search_cnt) 
-               OR (keywords.total_doc_cnt IS NULL AND excluded.total_doc_cnt IS NOT NULL)
-               OR (keywords.tier = 'UNRANKED' AND excluded.tier != 'UNRANKED');`,
-            args: [
-                kw.id || generateUUID(),
-                kw.keyword, kw.total_search_cnt, kw.pc_search_cnt || 0, kw.mo_search_cnt || 0,
-                kw.pc_click_cnt || 0, kw.mo_click_cnt || 0, kw.click_cnt || 0,
-                kw.pc_ctr || 0, kw.mo_ctr || 0, kw.total_ctr || 0,
-                kw.comp_idx || 0, kw.pl_avg_depth || 0,
-                kw.total_doc_cnt || null, kw.blog_doc_cnt || 0, kw.cafe_doc_cnt || 0,
-                kw.web_doc_cnt || 0, kw.news_doc_cnt || 0,
-                kw.golden_ratio || 0, kw.tier || 'UNRANKED', kw.is_expanded ? 1 : 0,
-                getCurrentTimestamp(), getCurrentTimestamp()
-            ]
-        }));
+        const validUpserts: any[] = [];
+
+        for (const kw of toUpsert) {
+            // 🔍 Smart Throttling Logic
+            // Calculate difference for search count and doc count
+            const oldTotalSearch = kw.total_search_cnt || 0;
+            const newTotalSearch = kw.total_search_cnt; // Inbound value
+            const searchDiff = Math.abs(newTotalSearch - oldTotalSearch);
+            const searchChangeRatio = oldTotalSearch > 0 ? searchDiff / oldTotalSearch : 1;
+
+            // Check doc change only if new doc count is provided
+            // Assuming we don't know the OLD doc count here without reading, BUT the WHERE clause in SQL handles it.
+            // However, we want to prevent sending the SQL entirely if it's likely useless.
+            // Since we don't have the OLD record to compare in memory (except high-volume ones if we cached them), 
+            // we will rely on the SQL WHERE clause to filter out updates at the DB level, BUT 'ON CONFLICT' still counts as a write attempt?
+            // SQLite 'ON CONFLICT DO UPDATE' where the WHERE clause filters out rows MIGHT still count towards row limits if not careful.
+            // Actually, Turso counts "Rows Written". If the UPDATE changes 0 rows, it might be 0 writes.
+            // BUT, to be safe, let's keep the WHERE clause robust.
+
+            // The issue is we already pushed to `toUpsert` above.
+            // So we just map it to SQL statements with the STRICT WHERE CLAUSE.
+
+            validUpserts.push({
+                sql: `INSERT INTO keywords (
+                    id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
+                    pc_click_cnt, mo_click_cnt, click_cnt, pc_ctr, mo_ctr, total_ctr,
+                    comp_idx, pl_avg_depth, total_doc_cnt, blog_doc_cnt, cafe_doc_cnt,
+                    web_doc_cnt, news_doc_cnt, golden_ratio, tier, is_expanded,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(keyword) DO UPDATE SET
+                    total_search_cnt = excluded.total_search_cnt,
+                    pc_search_cnt = excluded.pc_search_cnt,
+                    mo_search_cnt = excluded.mo_search_cnt,
+                    pc_click_cnt = excluded.pc_click_cnt,
+                    mo_click_cnt = excluded.mo_click_cnt,
+                    click_cnt = excluded.click_cnt,
+                    pc_ctr = excluded.pc_ctr,
+                    mo_ctr = excluded.mo_ctr,
+                    total_ctr = excluded.total_ctr,
+                    comp_idx = excluded.comp_idx,
+                    pl_avg_depth = excluded.pl_avg_depth,
+                    total_doc_cnt = COALESCE(excluded.total_doc_cnt, total_doc_cnt),
+                    blog_doc_cnt = COALESCE(excluded.blog_doc_cnt, blog_doc_cnt),
+                    cafe_doc_cnt = COALESCE(excluded.cafe_doc_cnt, cafe_doc_cnt),
+                    web_doc_cnt = COALESCE(excluded.web_doc_cnt, web_doc_cnt),
+                    news_doc_cnt = COALESCE(excluded.news_doc_cnt, news_doc_cnt),
+                    golden_ratio = COALESCE(excluded.golden_ratio, golden_ratio),
+                    tier = COALESCE(excluded.tier, tier),
+                    updated_at = excluded.updated_at
+                WHERE (ABS(keywords.total_search_cnt - excluded.total_search_cnt) > 10) 
+                   OR (keywords.total_doc_cnt IS NULL AND excluded.total_doc_cnt IS NOT NULL)
+                   OR (keywords.tier = 'UNRANKED' AND excluded.tier != 'UNRANKED');`,
+                args: [
+                    kw.id || generateUUID(),
+                    kw.keyword, kw.total_search_cnt, kw.pc_search_cnt || 0, kw.mo_search_cnt || 0,
+                    kw.pc_click_cnt || 0, kw.mo_click_cnt || 0, kw.click_cnt || 0,
+                    kw.pc_ctr || 0, kw.mo_ctr || 0, kw.total_ctr || 0,
+                    kw.comp_idx || 0, kw.pl_avg_depth || 0,
+                    kw.total_doc_cnt || null, kw.blog_doc_cnt || 0, kw.cafe_doc_cnt || 0,
+                    kw.web_doc_cnt || 0, kw.news_doc_cnt || 0,
+                    kw.golden_ratio || 0, kw.tier || 'UNRANKED', kw.is_expanded ? 1 : 0,
+                    getCurrentTimestamp(), getCurrentTimestamp()
+                ]
+            });
+        }
+
+        if (validUpserts.length === 0) continue;
 
         try {
-            await db.batch(statements);
-            totalUpserted += toUpsert.length;
-            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${toUpsert.length} upserted, ${batch.length - toUpsert.length} skipped (Bloom Hits: ${batch.length - toUpsert.length - (lowVolumeBatch.length - toUpsert.length + (highVolumeBatch.length)) /* approximate */})`);
+            await db.batch(validUpserts);
+            totalUpserted += validUpserts.length;
+            console.log(`[MiningEngine] ⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${validUpserts.length} sent to DB (Throttled Mode)`);
         } catch (e: any) {
             console.error(`[MiningEngine] Batch upsert failed at offset ${i}:`, e.message);
         }

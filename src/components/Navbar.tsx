@@ -39,6 +39,13 @@ export default function Navbar() {
                 인사이트
             </Link>
             <Link
+                href="/bulk"
+                onClick={closeMenu}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${isActive('/bulk') ? 'text-zinc-900 bg-zinc-100 dark:text-zinc-100 dark:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'}`}
+            >
+                대량조회
+            </Link>
+            <Link
                 href="/monitor"
                 onClick={closeMenu}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${isActive('/monitor') ? 'text-zinc-900 bg-zinc-100 dark:text-zinc-100 dark:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'}`}
