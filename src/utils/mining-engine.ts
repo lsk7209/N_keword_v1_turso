@@ -244,7 +244,7 @@ export async function processSeedKeyword(
                         return { ...cand, ...counts };
                     } catch (e) {
                         console.error(`Failed doc count for ${cand.originalKeyword}:`, e);
-                        return { ...cand, total: null }; // Mark as failed
+                        return { ...cand, total_doc_cnt: null, blog_doc_cnt: null, cafe_doc_cnt: null, web_doc_cnt: null, news_doc_cnt: null }; // Mark as failed explicitly with nulls
                     }
                 })
             );
@@ -280,11 +280,11 @@ export async function processSeedKeyword(
                 total_ctr: r.total_ctr,
                 comp_idx: r.comp_idx,
                 pl_avg_depth: r.pl_avg_depth,
-                total_doc_cnt: r.total, // keep showing total docs
-                blog_doc_cnt: r.blog || 0,
-                cafe_doc_cnt: r.cafe || 0,
-                web_doc_cnt: r.web || 0,
-                news_doc_cnt: r.news || 0,
+                total_doc_cnt: r.total_doc_cnt ?? (r.total ?? null),
+                blog_doc_cnt: r.blog_doc_cnt ?? (r.blog ?? undefined),
+                cafe_doc_cnt: r.cafe_doc_cnt ?? (r.cafe ?? undefined),
+                web_doc_cnt: r.web_doc_cnt ?? (r.web ?? undefined),
+                news_doc_cnt: r.news_doc_cnt ?? (r.news ?? undefined),
                 golden_ratio: ratio,
                 tier: tier,
                 is_expanded: false
