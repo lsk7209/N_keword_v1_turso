@@ -31,6 +31,15 @@ jobs:
           # 📊 13개 AD API 키 기반 최적화
           # - 초안정 모드: 배치 200개, 동시성 자동 조절
           
+          # 🆕 Step 1: 대량 키워드 큐 처리 (있는 경우만)
+          echo "📋 Checking bulk queue..."
+          QUEUE_URL="${{ secrets.PROD_URL }}/api/miner/execute?task=process_queue"
+          QUEUE_RESPONSE=$(curl -s -X GET "$QUEUE_URL" \
+            -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
+            --max-time 60) || echo "{}"
+          echo "Queue response: $QUEUE_RESPONSE"
+          
+          # Step 2: 일반 마이너 루프 실행
           RUN_FOR_SECONDS=450  # 7.5분간 루프 실행
           INTERVAL_SECONDS=20  # 20초 간격
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))

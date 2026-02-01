@@ -1,11 +1,125 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runMiningBatch } from '@/utils/batch-runner';
-import { getTursoClient } from '@/utils/turso';
+import { getTursoClient, generateUUID, getCurrentTimestamp } from '@/utils/turso';
+import { processSeedKeyword, bulkDeferredInsert } from '@/utils/mining-engine';
 
 // Set Vercel Function config
 export const maxDuration = 60; // 60 seconds strict
 export const dynamic = 'force-dynamic';
+
+/**
+ * 🆕 큐에 등록된 대량 키워드 처리 (완전 수집)
+ */
+async function processQueuedBulkMining(): Promise<any> {
+    const db = getTursoClient();
+    const startTime = Date.now();
+    const MAX_RUN_MS = 55000; // 55초 (Vercel 60초 제한 전에 종료)
+
+    // 1. pending 상태의 큐 가져오기 (먼저 등록된 것부터)
+    const queueResult = await db.execute({
+        sql: `SELECT * FROM bulk_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1`,
+        args: []
+    });
+
+    if (queueResult.rows.length === 0) {
+        return { message: 'No pending queue items', processed: 0 };
+    }
+
+    const queue = queueResult.rows[0];
+    const queueId = String(queue.id);
+    const seeds = JSON.parse(String(queue.seeds)) as string[];
+
+    console.log(`[ProcessQueue] Starting queue ${queueId} with ${seeds.length} seeds`);
+
+    // 2. 상태를 processing으로 업데이트
+    await db.execute({
+        sql: `UPDATE bulk_queue SET status = 'processing', updated_at = ? WHERE id = ?`,
+        args: [getCurrentTimestamp(), queueId]
+    });
+
+    // 3. 완전 수집 파라미터 (시간 제한 없음)
+    const LIMIT_DOC_COUNT = 0; // 모든 키워드 문서 수 조회
+    const MAX_KEYWORDS = 500;
+    const MIN_VOLUME = 100;
+
+    let processedSeeds = 0;
+    let totalItems = 0;
+    const allItems: any[] = [];
+    let lastError: string | null = null;
+
+    for (const seed of seeds) {
+        // 시간 초과 체크
+        if (Date.now() - startTime > MAX_RUN_MS) {
+            console.log(`[ProcessQueue] Time limit reached, stopping at seed ${processedSeeds}/${seeds.length}`);
+            break;
+        }
+
+        try {
+            console.log(`[ProcessQueue] Processing seed: ${seed} (${processedSeeds + 1}/${seeds.length})`);
+
+            const result = await processSeedKeyword(
+                seed,
+                LIMIT_DOC_COUNT,
+                false,
+                MIN_VOLUME,
+                MAX_KEYWORDS
+            );
+
+            if (result.items && result.items.length > 0) {
+                allItems.push(...result.items);
+                totalItems += result.items.length;
+            }
+
+            processedSeeds++;
+
+            // 진행 상황 업데이트
+            await db.execute({
+                sql: `UPDATE bulk_queue SET processed_seeds = ?, result_count = ?, updated_at = ? WHERE id = ?`,
+                args: [processedSeeds, totalItems, getCurrentTimestamp(), queueId]
+            });
+
+        } catch (error: any) {
+            console.error(`[ProcessQueue] Error processing seed ${seed}:`, error.message);
+            lastError = error.message;
+        }
+    }
+
+    // 4. DB에 저장 (Deferred Insert)
+    if (allItems.length > 0) {
+        // 중복 제거
+        const uniqueMap = new Map<string, any>();
+        allItems.forEach(item => {
+            const existing = uniqueMap.get(item.keyword);
+            if (!existing || (item.total_doc_cnt && !existing.total_doc_cnt)) {
+                uniqueMap.set(item.keyword, item);
+            }
+        });
+        const uniqueItems = Array.from(uniqueMap.values());
+
+        await bulkDeferredInsert(uniqueItems);
+        console.log(`[ProcessQueue] Saved ${uniqueItems.length} unique keywords to DB`);
+    }
+
+    // 5. 완료 상태 업데이트
+    const finalStatus = processedSeeds >= seeds.length ? 'completed' : 'pending'; // 시간 초과 시 다시 pending
+    await db.execute({
+        sql: `UPDATE bulk_queue SET status = ?, processed_seeds = ?, result_count = ?, error = ?, updated_at = ? WHERE id = ?`,
+        args: [finalStatus, processedSeeds, totalItems, lastError, getCurrentTimestamp(), queueId]
+    });
+
+    return {
+        queueId,
+        status: finalStatus,
+        processedSeeds,
+        totalSeeds: seeds.length,
+        resultCount: totalItems,
+        elapsedMs: Date.now() - startTime,
+        message: finalStatus === 'completed'
+            ? `완료: ${seeds.length}개 시드에서 ${totalItems}개 키워드 수집`
+            : `진행 중: ${processedSeeds}/${seeds.length} 시드 처리 (다음 cron에서 계속)`
+    };
+}
 
 export async function GET(req: NextRequest) {
     // 1. Auth Check
@@ -25,9 +139,15 @@ export async function GET(req: NextRequest) {
     try {
         // Optional runtime tuning (safe clamps happen inside runMiningBatch)
         const taskParam = (req.nextUrl.searchParams.get('task') || 'all').toLowerCase();
-        const task = (taskParam === 'fill_docs' || taskParam === 'expand' || taskParam === 'all')
-            ? (taskParam as 'fill_docs' | 'expand' | 'all')
+        const task = (taskParam === 'fill_docs' || taskParam === 'expand' || taskParam === 'all' || taskParam === 'process_queue')
+            ? (taskParam as 'fill_docs' | 'expand' | 'all' | 'process_queue')
             : 'all';
+
+        // 🆕 Process Queue: 백그라운드 대량 키워드 완전 수집
+        if (task === 'process_queue') {
+            const queueResult = await processQueuedBulkMining();
+            return NextResponse.json(queueResult);
+        }
 
         const fillBatch = req.nextUrl.searchParams.get('fillBatch');
         const fillConcurrency = req.nextUrl.searchParams.get('fillConcurrency');

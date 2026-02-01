@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Loader2, Search, Database, AlertCircle, Download } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Loader2, Search, Database, AlertCircle, Download, Clock, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface KeywordData {
@@ -27,11 +27,64 @@ interface KeywordData {
     golden_ratio: number;
 }
 
+type QueueStatus = 'idle' | 'queued' | 'processing' | 'completed' | 'failed';
+
 export default function BulkPage() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [results, setResults] = useState<KeywordData[]>([]);
     const [error, setError] = useState<string | null>(null);
+
+    // 큐 상태 관리
+    const [queueId, setQueueId] = useState<string | null>(null);
+    const [queueStatus, setQueueStatus] = useState<QueueStatus>('idle');
+    const [processedSeeds, setProcessedSeeds] = useState(0);
+    const [totalSeeds, setTotalSeeds] = useState(0);
+
+    // 폴링으로 큐 상태 확인
+    const pollQueueStatus = useCallback(async (id: string) => {
+        try {
+            const res = await fetch(`/api/keywords/bulk?id=${id}`);
+            const data = await res.json();
+
+            if (data.error) {
+                setError(data.error);
+                setQueueStatus('failed');
+                return;
+            }
+
+            setQueueStatus(data.status as QueueStatus);
+            setProcessedSeeds(data.processedSeeds || 0);
+            setTotalSeeds(data.totalSeeds || 0);
+
+            if (data.status === 'completed') {
+                setResults(data.data || []);
+                toast.success(`✅ 수집 완료! ${data.resultCount || 0}개의 키워드를 찾았습니다.`);
+                setIsLoading(false);
+                setQueueId(null);
+            } else if (data.status === 'failed') {
+                setError(data.error || '수집 중 오류가 발생했습니다.');
+                setIsLoading(false);
+                setQueueId(null);
+            }
+            // pending 또는 processing인 경우 계속 폴링
+        } catch (err: any) {
+            console.error('Polling error:', err);
+        }
+    }, []);
+
+    // 폴링 스케줄러
+    useEffect(() => {
+        if (!queueId || queueStatus === 'completed' || queueStatus === 'failed') {
+            return;
+        }
+
+        const interval = setInterval(() => {
+            pollQueueStatus(queueId);
+        }, 5000); // 5초마다 폴링
+
+        return () => clearInterval(interval);
+    }, [queueId, queueStatus, pollQueueStatus]);
 
     const handleInquire = async () => {
         if (!input.trim()) {
@@ -42,6 +95,7 @@ export default function BulkPage() {
         setIsLoading(true);
         setError(null);
         setResults([]);
+        setQueueStatus('idle');
 
         const keywords = input.split('\n').map(k => k.trim()).filter(k => k);
 
@@ -57,21 +111,24 @@ export default function BulkPage() {
                 body: JSON.stringify({ keywords }),
             });
 
-            if (!res.ok) {
-                throw new Error('데이터를 불러오는데 실패했습니다.');
-            }
-
             const data = await res.json();
+
             if (data.error) {
                 throw new Error(data.error);
             }
 
-            setResults(data.data || []);
-            toast.success(`${data.data?.length || 0}개의 키워드 정보를 가져왔습니다.`);
+            // 큐 등록 성공
+            setQueueId(data.queueId);
+            setQueueStatus('queued');
+            setTotalSeeds(keywords.length);
+            toast.info(`📋 ${keywords.length}개 키워드가 수집 대기열에 추가되었습니다.`);
+
+            // 즉시 첫 폴링 시작
+            pollQueueStatus(data.queueId);
+
         } catch (err: any) {
             setError(err.message || '오류가 발생했습니다.');
             toast.error(err.message || '오류가 발생했습니다.');
-        } finally {
             setIsLoading(false);
         }
     };
@@ -147,6 +204,35 @@ export default function BulkPage() {
         document.body.removeChild(link);
     };
 
+    // 상태 표시 렌더링
+    const renderStatus = () => {
+        if (queueStatus === 'queued') {
+            return (
+                <div className="flex items-center gap-2 text-amber-500">
+                    <Clock className="w-5 h-5 animate-pulse" />
+                    <span>대기 중... 곧 백그라운드에서 수집이 시작됩니다.</span>
+                </div>
+            );
+        }
+        if (queueStatus === 'processing') {
+            return (
+                <div className="flex items-center gap-2 text-blue-500">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>수집 중... ({processedSeeds}/{totalSeeds} 시드 처리됨)</span>
+                </div>
+            );
+        }
+        if (queueStatus === 'completed') {
+            return (
+                <div className="flex items-center gap-2 text-green-500">
+                    <CheckCircle2 className="w-5 h-5" />
+                    <span>수집 완료!</span>
+                </div>
+            );
+        }
+        return null;
+    };
+
     return (
         <main className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 p-4 md:p-8 font-sans">
             <div className="max-w-7xl mx-auto space-y-6">
@@ -176,6 +262,7 @@ export default function BulkPage() {
                                 onChange={(e) => setInput(e.target.value)}
                                 placeholder={`키워드1\n키워드2\n키워드3`}
                                 className="w-full h-[500px] p-3 text-sm border border-zinc-300 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none font-mono"
+                                disabled={isLoading}
                             />
                             <div className="mt-4">
                                 <button
@@ -196,7 +283,7 @@ export default function BulkPage() {
                                     )}
                                 </button>
                                 <p className="text-xs text-zinc-400 mt-2 text-center">
-                                    * 신규 키워드는 조회 시 자동 수집됩니다.
+                                    * 백그라운드에서 완전 수집됩니다 (최대 15분 소요).
                                 </p>
                             </div>
                         </div>
@@ -210,15 +297,18 @@ export default function BulkPage() {
                                 <h2 className="text-sm font-semibold flex items-center gap-2">
                                     조회 결과 <span className="text-zinc-500 font-normal">({results.length}개)</span>
                                 </h2>
-                                {results.length > 0 && (
-                                    <button
-                                        onClick={downloadCSV}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
-                                    >
-                                        <Download className="w-3.5 h-3.5" />
-                                        CSV 다운로드
-                                    </button>
-                                )}
+                                <div className="flex items-center gap-3">
+                                    {renderStatus()}
+                                    {results.length > 0 && (
+                                        <button
+                                            onClick={downloadCSV}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+                                        >
+                                            <Download className="w-3.5 h-3.5" />
+                                            CSV 다운로드
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Content */}
@@ -284,9 +374,17 @@ export default function BulkPage() {
                             ) : (
                                 <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4">
                                     {isLoading ? (
-                                        <div className="flex flex-col items-center gap-2">
-                                            <Loader2 className="w-8 h-8 animate-spin text-green-600" />
-                                            <p className="text-sm">데이터를 조회하고 있습니다...</p>
+                                        <div className="flex flex-col items-center gap-3">
+                                            <Loader2 className="w-10 h-10 animate-spin text-green-600" />
+                                            <div className="text-center">
+                                                <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+                                                    {queueStatus === 'queued' && '수집 대기열에 추가됨...'}
+                                                    {queueStatus === 'processing' && `수집 중... (${processedSeeds}/${totalSeeds})`}
+                                                </p>
+                                                <p className="text-xs text-zinc-400 mt-1">
+                                                    백그라운드에서 완전 수집됩니다. 이 페이지를 닫아도 됩니다.
+                                                </p>
+                                            </div>
                                         </div>
                                     ) : error ? (
                                         <div className="flex flex-col items-center gap-2 text-red-500">
