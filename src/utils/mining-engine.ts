@@ -194,25 +194,8 @@ export async function processSeedKeyword(
             is_expanded: false
         }));
     } else {
-        // 문서 수집 대상만 메모리에 저장
-        candidatesToProcess.forEach((cand: any) => {
-            memoryResults.push({
-                keyword: cand.originalKeyword,
-                total_search_cnt: cand.total_search_cnt,
-                pc_search_cnt: cand.pc_search_cnt,
-                mo_search_cnt: cand.mo_search_cnt,
-                pc_click_cnt: cand.pc_click_cnt,
-                mo_click_cnt: cand.mo_click_cnt,
-                click_cnt: cand.click_cnt,
-                pc_ctr: cand.pc_ctr,
-                mo_ctr: cand.mo_ctr,
-                total_ctr: cand.total_ctr,
-                comp_idx: cand.comp_idx,
-                pl_avg_depth: cand.pl_avg_depth,
-                is_expanded: false
-            });
-        });
-
+        // candidatesToProcess는 doc fetch 후 memoryResults에 추가됨 (중복 방지)
+        // candidatesToSaveOnly만 여기서 추가
         candidatesToSaveOnly.forEach((cand: any) => {
             memoryDeferredResults.push({
                 keyword: cand.originalKeyword,
@@ -239,30 +222,46 @@ export async function processSeedKeyword(
         });
     }
 
-    // 5. Fetch Document Counts (Parallel Batches) for candidatesToProcess
+    // 5. Fetch Document Counts (Sequential Batches) for candidatesToProcess
     if (!skipDocFetch && candidatesToProcess.length > 0) {
-        // Optimized: Run ALL chunks in parallel instead of sequentially
-        const BATCH_SIZE = 5;
-        const allChunks = [];
+        // 🔧 FIX: Process batches SEQUENTIALLY with delay to prevent API rate limits
+        const BATCH_SIZE = 10;
+        const BATCH_DELAY_MS = 200; // Delay between batches
+        const allChunks: any[][] = [];
         for (let i = 0; i < candidatesToProcess.length; i += BATCH_SIZE) {
             allChunks.push(candidatesToProcess.slice(i, i + BATCH_SIZE));
         }
 
-        const allChunkResults = await Promise.all(
-            allChunks.map(chunk =>
-                Promise.all(chunk.map(async (cand: any) => {
+        console.log(`[MiningEngine] 📊 Fetching doc counts for ${candidatesToProcess.length} keywords in ${allChunks.length} batches...`);
+
+        const allResults: any[] = [];
+        for (let chunkIdx = 0; chunkIdx < allChunks.length; chunkIdx++) {
+            const chunk = allChunks[chunkIdx];
+            const chunkResults = await Promise.all(
+                chunk.map(async (cand: any) => {
                     try {
                         const counts = await fetchDocumentCount(cand.originalKeyword);
                         return { ...cand, ...counts };
                     } catch (e) {
                         console.error(`Failed doc count for ${cand.originalKeyword}:`, e);
-                        return { ...cand, total: null }; // Mark as failed doc count
+                        return { ...cand, total: null }; // Mark as failed
                     }
-                }))
-            )
-        );
+                })
+            );
+            allResults.push(...chunkResults);
 
-        const processedResults = allChunkResults.flat();
+            // Progress log every 10 batches
+            if ((chunkIdx + 1) % 10 === 0 || chunkIdx === allChunks.length - 1) {
+                console.log(`[MiningEngine] 📊 Batch ${chunkIdx + 1}/${allChunks.length} complete (${allResults.length}/${candidatesToProcess.length})`);
+            }
+
+            // Delay between batches (except last)
+            if (chunkIdx < allChunks.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+            }
+        }
+
+        const processedResults = allResults;
 
         // 6. Process Results for Memory
         processedResults.forEach((r: Keyword & Partial<DocCounts>) => {
