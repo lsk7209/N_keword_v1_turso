@@ -376,28 +376,40 @@ export async function bulkDeferredInsert(keywords: Keyword[]): Promise<{ inserte
             // 1. New from Bloom are added directly
             toUpsert.push(...potentialNew);
 
-            // 2. Check "Maybe" keywords via DB (Legacy Hybrid Check)
+            // 2. Check "Maybe" keywords via DB
             if (maybeTypes.length > 0) {
                 const maybeKeywords = maybeTypes.map(k => k.keyword);
 
                 try {
                     const placeholders = maybeKeywords.map(() => '?').join(',');
+                    // 🔍 Fetch total_doc_cnt to decide whether to update
                     const res = await db.execute({
-                        sql: `SELECT keyword FROM keywords WHERE keyword IN (${placeholders})`,
+                        sql: `SELECT keyword, total_doc_cnt FROM keywords WHERE keyword IN (${placeholders})`,
                         args: maybeKeywords
                     });
 
-                    const existingSet = new Set(res.rows.map(r => String(r.keyword)));
+                    const existingMap = new Map(res.rows.map(r => [String(r.keyword), r]));
 
                     for (const kw of maybeTypes) {
-                        if (!existingSet.has(kw.keyword)) {
-                            toUpsert.push(kw); // Really New -> Insert
+                        const existing = existingMap.get(kw.keyword);
+
+                        // Fix Type Access: Use any cast for existing record since Row type is generic
+                        const existingDocCnt = existing ? (existing as any).total_doc_cnt : null;
+
+                        // Update if:
+                        // 1. New (no existing)
+                        // 2. Existing has no doc count (null or 0) AND new one has doc count > 0
+                        if (!existing ||
+                            ((existingDocCnt == null || existingDocCnt === 0) && kw.total_doc_cnt != null && kw.total_doc_cnt > 0)) {
+
+                            toUpsert.push(kw);
+                            // Only add to bloom if it's completely new or if we want to ensure it's in bloom
                             if (bloom) {
-                                bloom.add(kw.keyword); // Update bloom (False positive correction?) No, just ensure it's there
+                                bloom.add(kw.keyword);
                                 bloomSavedCount++;
                             }
                         } else {
-                            totalSkipped++; // Existing -> Skip
+                            totalSkipped++;
                         }
                     }
                 } catch (e) {
