@@ -25,8 +25,8 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ data: [] });
         }
 
-        // 2. Process each seed using Mining Engine (Max 1000 related, Top 30 docs)
-        const LIMIT_DOC_COUNT = 30;
+        // 2. Process each seed using Mining Engine (Max 1000 related, ALL docs)
+        const LIMIT_DOC_COUNT = 0;  // 0 = Fetch docs for ALL keywords (slower but complete)
         const MAX_KEYWORDS = 1000;
         const MIN_VOLUME = 100;
 
@@ -76,7 +76,18 @@ export async function POST(req: NextRequest) {
         // 5. Sort by Search Volume DESC
         uniqueItems.sort((a, b) => (b.total_search_cnt || 0) - (a.total_search_cnt || 0));
 
-        return NextResponse.json({ data: uniqueItems });
+        // 6. Filter for UI display (only show >= 1000 volume, rest is silently saved to DB)
+        const DISPLAY_MIN_VOLUME = 1000;
+        const displayItems = uniqueItems.filter(item => (item.total_search_cnt || 0) >= DISPLAY_MIN_VOLUME);
+
+        return NextResponse.json({
+            data: displayItems,
+            meta: {
+                totalCollected: uniqueItems.length,
+                displayed: displayItems.length,
+                savedOnly: uniqueItems.length - displayItems.length
+            }
+        });
 
     } catch (e: any) {
         console.error('Bulk keyword API Error:', e);
