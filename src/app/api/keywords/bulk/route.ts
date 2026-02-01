@@ -25,10 +25,10 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ data: [] });
         }
 
-        // 2. Process each seed using Mining Engine (Max 100 related, Top 30 docs)
+        // 2. Process each seed using Mining Engine (Max 1000 related, Top 30 docs)
         const LIMIT_DOC_COUNT = 30;
-        const MAX_KEYWORDS = 100;
-        const MIN_VOLUME = 10;
+        const MAX_KEYWORDS = 1000;
+        const MIN_VOLUME = 100;
 
         const allItems: any[] = [];
 
