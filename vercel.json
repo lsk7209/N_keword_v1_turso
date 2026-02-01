@@ -7,15 +7,15 @@
     "crons": [
         {
             "path": "/api/cron/update-stats",
-            "schedule": "0 * * * *"
+            "schedule": "0 0 * * *"
         },
         {
-            "path": "/api/miner/execute?task=expand&expandBatch=500&expandConcurrency=100&minSearchVolume=30&maxRunMs=58000",
-            "schedule": "*/10 * * * *"
+            "path": "/api/miner/execute?task=expand&expandBatch=50&expandConcurrency=5&minSearchVolume=30&maxRunMs=5000",
+            "schedule": "0 */4 * * *"
         },
         {
-            "path": "/api/miner/execute?task=fill_docs&fillBatch=500&fillConcurrency=150&maxRunMs=58000",
-            "schedule": "5-59/10 * * * *"
+            "path": "/api/miner/execute?task=fill_docs&fillBatch=50&fillConcurrency=5&maxRunMs=5000",
+            "schedule": "30 */4 * * *"
         }
     ],
     "headers": [
