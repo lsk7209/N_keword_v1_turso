@@ -40,8 +40,15 @@ export async function POST(req: NextRequest) {
             existingKeywordsMap.set(row.keyword, row);
         });
 
-        // 3. Identify missing keywords
-        const missingKeywords = keywords.filter(k => !existingKeywordsMap.has(k));
+        // 3. Identify missing keywords OR keywords with 0 document count (retry logic)
+        const missingKeywords = keywords.filter(k => {
+            const existing = existingKeywordsMap.get(k);
+            // If doesn't exist, needs fetch
+            if (!existing) return true;
+            // If exists but total_doc_cnt is 0 (likely failed previously or partial data), needs fetch
+            if (!existing.total_doc_cnt) return true;
+            return false;
+        });
         const newResults: any[] = [];
 
         // 4. Fetch and save missing data
@@ -99,6 +106,7 @@ export async function POST(req: NextRequest) {
                 // Calculate Tier/Ratio if needed (logic can be duplicated from mining engine or simplified here)
                 // For now, raw data is saved.
 
+                // Use INSERT OR REPLACE to handle both new and updated keywords
                 await db.execute({
                     sql: `INSERT INTO keywords (
                         id, keyword, total_search_cnt, pc_search_cnt, mo_search_cnt,
@@ -107,7 +115,30 @@ export async function POST(req: NextRequest) {
                         comp_idx, pl_avg_depth, avg_bid_price,
                         total_doc_cnt, blog_doc_cnt, cafe_doc_cnt, web_doc_cnt, news_doc_cnt,
                         tier, golden_ratio, is_expanded, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(keyword) DO UPDATE SET
+                        total_search_cnt = excluded.total_search_cnt,
+                        pc_search_cnt = excluded.pc_search_cnt,
+                        mo_search_cnt = excluded.mo_search_cnt,
+                        click_cnt = excluded.click_cnt,
+                        pc_click_cnt = excluded.pc_click_cnt,
+                        mo_click_cnt = excluded.mo_click_cnt,
+                        total_ctr = excluded.total_ctr,
+                        pc_ctr = excluded.pc_ctr,
+                        mo_ctr = excluded.mo_ctr,
+                        ctr = excluded.ctr,
+                        comp_idx = excluded.comp_idx,
+                        pl_avg_depth = excluded.pl_avg_depth,
+                        avg_bid_price = excluded.avg_bid_price,
+                        total_doc_cnt = excluded.total_doc_cnt,
+                        blog_doc_cnt = excluded.blog_doc_cnt,
+                        cafe_doc_cnt = excluded.cafe_doc_cnt,
+                        web_doc_cnt = excluded.web_doc_cnt,
+                        news_doc_cnt = excluded.news_doc_cnt,
+                        tier = excluded.tier,
+                        golden_ratio = excluded.golden_ratio,
+                        updated_at = excluded.updated_at
+                    `,
                     args: [
                         newKeywordData.id, newKeywordData.keyword, newKeywordData.total_search_cnt, newKeywordData.pc_search_cnt, newKeywordData.mo_search_cnt,
                         newKeywordData.click_cnt, newKeywordData.pc_click_cnt, newKeywordData.mo_click_cnt,
@@ -131,11 +162,14 @@ export async function POST(req: NextRequest) {
         }
 
         // Combine results
-        // Re-map original keywords to their data (either from existing or new)
+        // If a keyword was in missingKeywords, looking into newResults using find. 
+        // If not, use existingKeywordsMap.
         const finalResults = keywords.map(k => {
-            if (existingKeywordsMap.has(k)) return existingKeywordsMap.get(k);
             const newData = newResults.find(n => n.keyword === k);
-            return newData || null; // Null if failed to fetch
+            if (newData) return newData;
+
+            const existing = existingKeywordsMap.get(k);
+            return existing || null;
         }).filter(item => item !== null);
 
         return NextResponse.json({ data: finalResults });

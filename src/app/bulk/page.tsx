@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, Search, Database, AlertCircle } from 'lucide-react';
+import { Loader2, Search, Database, AlertCircle, Download } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface KeywordData {
@@ -112,19 +112,56 @@ export default function BulkPage() {
         </div>
     );
 
+    const downloadCSV = () => {
+        if (results.length === 0) {
+            toast.error('다운로드할 데이터가 없습니다.');
+            return;
+        }
+
+        const headers = ['키워드', '등급', '총검색량', '황금비율', '총 문서수', '블로그', '카페', '웹', '뉴스', 'PC 검색수', 'MO 검색수', '경쟁정도'];
+        const csvContent = [
+            headers.join(','),
+            ...results.map(row => [
+                row.keyword,
+                row.tier,
+                row.total_search_cnt,
+                row.golden_ratio?.toFixed(2),
+                row.total_doc_cnt,
+                row.blog_doc_cnt,
+                row.cafe_doc_cnt,
+                row.web_doc_cnt,
+                row.news_doc_cnt,
+                row.pc_search_cnt,
+                row.mo_search_cnt,
+                row.comp_idx
+            ].map(cell => `"${cell || 0}"`).join(','))
+        ].join('\n');
+
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `keywords_bulk_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     return (
         <main className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 p-4 md:p-8 font-sans">
             <div className="max-w-7xl mx-auto space-y-6">
 
                 {/* Header */}
-                <header>
-                    <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-                        <Database className="w-8 h-8 text-green-600" />
-                        대량 키워드 조회
-                    </h1>
-                    <p className="text-zinc-500 dark:text-zinc-400 mt-1">
-                        여러 키워드를 한 번에 입력하여 데이터를 조회하고 수집합니다. (줄바꿈으로 구분)
-                    </p>
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+                            <Database className="w-8 h-8 text-green-600" />
+                            대량 키워드 조회
+                        </h1>
+                        <p className="text-zinc-500 dark:text-zinc-400 mt-1">
+                            여러 키워드를 한 번에 입력하여 데이터를 조회하고 수집합니다. (줄바꿈으로 구분)
+                        </p>
+                    </div>
                 </header>
 
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -173,6 +210,15 @@ export default function BulkPage() {
                                 <h2 className="text-sm font-semibold flex items-center gap-2">
                                     조회 결과 <span className="text-zinc-500 font-normal">({results.length}개)</span>
                                 </h2>
+                                {results.length > 0 && (
+                                    <button
+                                        onClick={downloadCSV}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+                                    >
+                                        <Download className="w-3.5 h-3.5" />
+                                        CSV 다운로드
+                                    </button>
+                                )}
                             </div>
 
                             {/* Content */}
@@ -184,6 +230,7 @@ export default function BulkPage() {
                                             <HeaderCell label="등급" width={colWidths.tier} align="center" />
                                             <HeaderCell label="총검색량" width={colWidths.search} />
                                             <HeaderCell label="비율" width={colWidths.ratio} />
+                                            <HeaderCell label="총 문서" width={colWidths.doc} />
                                             <HeaderCell label="블로그" width={colWidths.doc} />
                                             <HeaderCell label="카페" width={colWidths.doc} />
                                             <HeaderCell label="웹" width={colWidths.doc} />
@@ -221,6 +268,7 @@ export default function BulkPage() {
                                                         width={colWidths.ratio}
                                                         className="font-semibold text-emerald-600"
                                                     />
+                                                    <DataCell value={item.total_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                                     <DataCell value={item.blog_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                                     <DataCell value={item.cafe_doc_cnt?.toLocaleString()} width={colWidths.doc} />
                                                     <DataCell value={item.web_doc_cnt?.toLocaleString()} width={colWidths.doc} />
