@@ -29,8 +29,12 @@ async function processQueuedBulkMining(): Promise<any> {
     const queue = queueResult.rows[0];
     const queueId = String(queue.id);
     const seeds = JSON.parse(String(queue.seeds)) as string[];
+    const alreadyProcessed = Number(queue.processed_seeds) || 0;
 
-    console.log(`[ProcessQueue] Starting queue ${queueId} with ${seeds.length} seeds`);
+    // 🆕 이어서 처리: 이미 처리된 시드는 건너뜀
+    const remainingSeeds = seeds.slice(alreadyProcessed);
+
+    console.log(`[ProcessQueue] Starting queue ${queueId}: ${remainingSeeds.length} remaining (${alreadyProcessed}/${seeds.length} done)`);
 
     // 2. 상태를 processing으로 업데이트
     await db.execute({
@@ -43,15 +47,25 @@ async function processQueuedBulkMining(): Promise<any> {
     const MAX_KEYWORDS = 500;
     const MIN_VOLUME = 100;
 
-    let processedSeeds = 0;
-    let totalItems = 0;
+    let processedSeeds = alreadyProcessed;
+    let totalItems = Number(queue.result_count) || 0;
     const allItems: any[] = [];
     let lastError: string | null = null;
 
-    for (const seed of seeds) {
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 5; // 연속 5회 에러 시 큐 실패 처리
+
+    for (const seed of remainingSeeds) {
         // 시간 초과 체크
         if (Date.now() - startTime > MAX_RUN_MS) {
             console.log(`[ProcessQueue] Time limit reached, stopping at seed ${processedSeeds}/${seeds.length}`);
+            break;
+        }
+
+        // 🆕 연속 에러 제한: 무한루프 방지
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            console.error(`[ProcessQueue] Too many consecutive errors (${consecutiveErrors}), marking queue as failed`);
+            lastError = `Too many consecutive errors: ${consecutiveErrors}`;
             break;
         }
 
@@ -71,18 +85,22 @@ async function processQueuedBulkMining(): Promise<any> {
                 totalItems += result.items.length;
             }
 
-            processedSeeds++;
-
-            // 진행 상황 업데이트
-            await db.execute({
-                sql: `UPDATE bulk_queue SET processed_seeds = ?, result_count = ?, updated_at = ? WHERE id = ?`,
-                args: [processedSeeds, totalItems, getCurrentTimestamp(), queueId]
-            });
+            consecutiveErrors = 0; // 성공 시 에러 카운트 리셋
 
         } catch (error: any) {
             console.error(`[ProcessQueue] Error processing seed ${seed}:`, error.message);
             lastError = error.message;
+            consecutiveErrors++;
         }
+
+        // 🔴 핵심: 성공/실패 관계없이 항상 시드 카운트 증가 (무한루프 방지)
+        processedSeeds++;
+
+        // 진행 상황 업데이트
+        await db.execute({
+            sql: `UPDATE bulk_queue SET processed_seeds = ?, result_count = ?, updated_at = ? WHERE id = ?`,
+            args: [processedSeeds, totalItems, getCurrentTimestamp(), queueId]
+        });
     }
 
     // 4. DB에 저장 (Deferred Insert)
@@ -102,11 +120,29 @@ async function processQueuedBulkMining(): Promise<any> {
     }
 
     // 5. 완료 상태 업데이트
-    const finalStatus = processedSeeds >= seeds.length ? 'completed' : 'pending'; // 시간 초과 시 다시 pending
+    // 🔴 상태 결정 로직:
+    // - 모든 시드 처리 완료 → 'completed'
+    // - 연속 에러로 중단 → 'failed' (무한루프 방지)
+    // - 시간 초과 → 'pending' (다음 cron에서 이어서 처리)
+    let finalStatus: 'completed' | 'pending' | 'failed';
+    if (processedSeeds >= seeds.length) {
+        finalStatus = 'completed';
+    } else if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        finalStatus = 'failed';
+    } else {
+        finalStatus = 'pending';
+    }
+
     await db.execute({
         sql: `UPDATE bulk_queue SET status = ?, processed_seeds = ?, result_count = ?, error = ?, updated_at = ? WHERE id = ?`,
         args: [finalStatus, processedSeeds, totalItems, lastError, getCurrentTimestamp(), queueId]
     });
+
+    const statusMessages = {
+        completed: `완료: ${seeds.length}개 시드에서 ${totalItems}개 키워드 수집`,
+        failed: `실패: 연속 ${consecutiveErrors}회 에러 발생 (${processedSeeds}/${seeds.length} 시드 처리됨)`,
+        pending: `진행 중: ${processedSeeds}/${seeds.length} 시드 처리 (다음 cron에서 계속)`
+    };
 
     return {
         queueId,
@@ -115,9 +151,7 @@ async function processQueuedBulkMining(): Promise<any> {
         totalSeeds: seeds.length,
         resultCount: totalItems,
         elapsedMs: Date.now() - startTime,
-        message: finalStatus === 'completed'
-            ? `완료: ${seeds.length}개 시드에서 ${totalItems}개 키워드 수집`
-            : `진행 중: ${processedSeeds}/${seeds.length} 시드 처리 (다음 cron에서 계속)`
+        message: statusMessages[finalStatus]
     };
 }
 

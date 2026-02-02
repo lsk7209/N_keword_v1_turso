@@ -32,17 +32,16 @@ async function mapWithConcurrency<T, R>(
     const results: R[] = new Array(items.length);
     let nextIndex = 0;
     const workers = new Array(Math.max(1, concurrency)).fill(null).map(async (_, workerId) => {
-        // 🚀 Ramp-up: Stagger start times to prevent initial burst
-        // worker 0 starts at 0ms, worker 10 at 500ms...
-        await new Promise(r => setTimeout(r, workerId * 50));
+        // 🎯 30일 지속 가능: Stagger 증가 (50ms → 200ms)
+        await new Promise(r => setTimeout(r, workerId * 200));
 
         while (true) {
             const idx = nextIndex++;
             if (idx >= items.length) return;
 
-            // Jitter for subsequent requests
+            // 🎯 Jitter 증가: 50ms → 200ms
             if (nextIndex > concurrency) {
-                await new Promise(r => setTimeout(r, Math.random() * 50 + 10));
+                await new Promise(r => setTimeout(r, Math.random() * 200 + 50));
             }
             results[idx] = await worker(items[idx], idx);
         }
@@ -97,11 +96,11 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const availableSearchKeys = keyManager.getAvailableKeyCount('SEARCH');
     const availableAdKeys = keyManager.getAvailableKeyCount('AD');
 
-    // 🚀 AD API 최적화: 스마트 쿨다운 대응
+    // 🚀 AD API 최적화: 30일 지속 가능 모드 (Conservative)
     let baseExpandConcurrency = 1;
     if (availableAdKeys > 0) {
-        // 키당 최대 2개 동시 요청 (안정성 최우선)
-        baseExpandConcurrency = Math.min(30, availableAdKeys * 2);
+        // 🎯 DB Read 절감: 키당 1개로 제한 (안정성 최우선)
+        baseExpandConcurrency = Math.min(5, availableAdKeys * 1);
     } else {
         // 모든 키가 쿨다운 중이면 잠시 대기 시도 (TURBO 유지)
         console.warn('[BatchRunner] ⚠️ All AD keys cooling down. Waiting...');
@@ -114,8 +113,8 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
         }
     }
 
-    // Search API: Stability Focus (2 requests per key)
-    let baseFillConcurrency = Math.min(60, Math.max(1, availableSearchKeys * 2));
+    // 🎯 Search API: 30일 지속 가능 모드 (키당 1개로 제한)
+    let baseFillConcurrency = Math.min(10, Math.max(1, availableSearchKeys * 1));
     if (availableSearchKeys === 0) {
         console.warn('[BatchRunner] ⚠️ All SEARCH keys cooling down. Waiting...');
         await keyManager.waitForNextKey('SEARCH', 2000);
@@ -125,18 +124,20 @@ export async function runMiningBatch(options: MiningBatchOptions = {}): Promise<
     const EXPAND_CONCURRENCY = clampInt(options.expandConcurrency, 1, baseExpandConcurrency, baseExpandConcurrency);
     const FILL_DOCS_CONCURRENCY = clampInt(options.fillDocsConcurrency, 1, baseFillConcurrency, baseFillConcurrency);
 
-    // 🚀 SAFETY CAP: KEY capacity 기반 배치 크기 자동 조절
-    const safeExpandBatchCap = Math.max(10, EXPAND_CONCURRENCY * 5);
-    const safeFillBatchCap = Math.max(50, FILL_DOCS_CONCURRENCY * 10);
+    // 🎯 30일 지속 가능 모드: 배치 크기 대폭 축소
+    const safeExpandBatchCap = Math.max(10, EXPAND_CONCURRENCY * 3);
+    const safeFillBatchCap = Math.max(20, FILL_DOCS_CONCURRENCY * 5);
 
-    const EXPAND_BATCH_DEFAULT = 200;
-    const FILL_BATCH_DEFAULT = 200;
+    // 📉 RADICAL REDUCTION: 200 → 30/50 (85%/75% 감소)
+    const EXPAND_BATCH_DEFAULT = 30;
+    const FILL_BATCH_DEFAULT = 50;
 
     const EXPAND_BATCH = clampInt(options.expandBatch, 1, safeExpandBatchCap, Math.min(EXPAND_BATCH_DEFAULT, safeExpandBatchCap));
     const FILL_DOCS_BATCH = clampInt(options.fillDocsBatch, 1, safeFillBatchCap, Math.min(FILL_BATCH_DEFAULT, safeFillBatchCap));
 
-    const MIN_SEARCH_VOLUME_DEFAULT_VAL = 30; // 100 -> 30으로 하향하여 더 많은 키워드 수집
-    const MIN_SEARCH_VOLUME = Math.max(10, clampInt(options.minSearchVolume, 0, 50_000, MIN_SEARCH_VOLUME_DEFAULT_VAL)); // Math.max(100) 제거하여 더 넓은 범위 지원
+    // 📉 검색량 기준 상향: 30 → 50 (저품질 키워드 제외로 Write 감소)
+    const MIN_SEARCH_VOLUME_DEFAULT_VAL = 50;
+    const MIN_SEARCH_VOLUME = Math.max(30, clampInt(options.minSearchVolume, 0, 50_000, MIN_SEARCH_VOLUME_DEFAULT_VAL));
 
     console.log(`[BatchRunner] Mode: ${mode}, Keys(S/A): ${availableSearchKeys}/${availableAdKeys}, Task: ${task}`);
     console.log(`[BatchRunner] Config: Expand(Batch:${EXPAND_BATCH}, Conc:${EXPAND_CONCURRENCY}), FillDocs(Batch:${FILL_DOCS_BATCH}, Conc:${FILL_DOCS_CONCURRENCY}), MaxRunMs: ${maxRunMs}`);
@@ -296,18 +297,25 @@ async function runExpandTask(batchSize: number, concurrency: number, minSearchVo
     });
 
     // 배치 삽입
+    let bulkInsertSuccess = true;
     if (memoryKeywordBuffer.length > 0) {
         try {
             await bulkDeferredInsert(memoryKeywordBuffer);
             console.log(`[BatchRunner] ⚡ Deferred Bulk Insert: ${memoryKeywordBuffer.length} keywords`);
         } catch (e) {
             console.error('[BatchRunner] Bulk insert failed:', e);
+            bulkInsertSuccess = false;
         }
     }
 
     // 상태 업데이트
-    const successIds = memorySeedUpdates.filter(s => s.status === 'success').map(s => s.id);
-    const failIds = memorySeedUpdates.filter(s => s.status === 'failed').map(s => s.id);
+    // 🆕 배치 삽입 실패 시 모든 시드를 실패로 처리하여 재시도 가능하게 함
+    const successIds = bulkInsertSuccess
+        ? memorySeedUpdates.filter(s => s.status === 'success').map(s => s.id)
+        : [];
+    const failIds = bulkInsertSuccess
+        ? memorySeedUpdates.filter(s => s.status === 'failed').map(s => s.id)
+        : memorySeedUpdates.map(s => s.id); // 삽입 실패 시 모두 실패 처리
     const skippedSeeds = expandResults.filter(r => r.status === 'skipped_deadline').map(r => r.seed);
 
     if (successIds.length > 0) {

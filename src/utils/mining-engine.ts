@@ -225,8 +225,9 @@ export async function processSeedKeyword(
     // 5. Fetch Document Counts (Sequential Batches) for candidatesToProcess
     if (!skipDocFetch && candidatesToProcess.length > 0) {
         // 🔧 FIX: Process batches SEQUENTIALLY with delay to prevent API rate limits
+        // 🔧 30일 지속 가능: Delay between batches increased (200ms -> 1000ms)
         const BATCH_SIZE = 10;
-        const BATCH_DELAY_MS = 200; // Delay between batches
+        const BATCH_DELAY_MS = 1000; // 5x Slower for safety
         const allChunks: any[][] = [];
         for (let i = 0; i < candidatesToProcess.length; i += BATCH_SIZE) {
             allChunks.push(candidatesToProcess.slice(i, i + BATCH_SIZE));

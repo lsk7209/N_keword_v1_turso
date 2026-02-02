@@ -7,7 +7,7 @@
     "crons": [
         {
             "path": "/api/cron/update-stats",
-            "schedule": "0 0 * * *"
+            "schedule": "0 */6 * * *"
         },
         {
             "path": "/api/miner/execute?task=expand&expandBatch=50&expandConcurrency=5&minSearchVolume=30&maxRunMs=5000",

@@ -108,40 +108,11 @@ export default async function MonitorPage() {
             db.execute('SELECT keyword, total_search_cnt, is_expanded, updated_at FROM keywords WHERE total_search_cnt >= 100 ORDER BY total_search_cnt DESC LIMIT 20')
         ]);
 
-        // If Cache missed, run Heavy Queries (Fallback)
+        // 🛑 30일 안정성 모드: Live Fallback 제거
+        // 캐시가 없으면 0으로 표시 (Heavy Query 방지)
         if (!usedCache) {
-            const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            const [mainStatsResult, tierStatsResult, seedStatsResult, newStatsResult] = await Promise.all([
-                db.execute(`SELECT COUNT(*) as total, SUM(CASE WHEN total_doc_cnt >= 0 THEN 1 ELSE 0 END) as analyzed, SUM(CASE WHEN is_expanded = 1 THEN 1 ELSE 0 END) as expanded FROM keywords`),
-                db.execute('SELECT tier, COUNT(*) as count FROM keywords GROUP BY tier'),
-                db.execute(`SELECT is_expanded, COUNT(*) as count FROM keywords WHERE total_search_cnt >= 100 GROUP BY is_expanded`),
-                db.execute(`SELECT SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as new24h, SUM(CASE WHEN total_doc_cnt >= 0 AND updated_at >= ? THEN 1 ELSE 0 END) as docs24h FROM keywords`, [since24h, since24h])
-            ]);
-
-            total = (mainStatsResult.rows[0]?.total as number) || 0;
-            analyzed = (mainStatsResult.rows[0]?.analyzed as number) || 0;
-            expanded = (mainStatsResult.rows[0]?.expanded as number) || 0;
-
-            tierStatsResult.rows.forEach(row => {
-                const t = String(row.tier);
-                const c = Number(row.count);
-                if (t === 'PLATINUM') platinumCount = c;
-                else if (t === 'GOLD') goldCount = c;
-                else if (t === 'SILVER') silverCount = c;
-                else if (t === 'BRONZE') bronzeCount = c;
-            });
-
-            seedKeywordsTotal = seedStatsResult.rows.reduce((sum, row) => sum + Number(row.count), 0);
-            seedStatsResult.rows.forEach(row => {
-                const s = Number(row.is_expanded);
-                const c = Number(row.count);
-                if (s === 0) seedKeywordsPending = c;
-                else if (s === 1) seedKeywordsExpanded = c;
-                else if (s === 2) seedKeywordsProcessing = c;
-            });
-
-            newKeywords24h = (newStatsResult.rows[0]?.new24h as number) || 0;
-            docsFilled24h = (newStatsResult.rows[0]?.docs24h as number) || 0;
+            console.warn('[Monitor] ⚠️ No stats cache found. Waiting for background job...');
+            errorMsg = '데이터 집계 중입니다. 잠시 후 다시 확인해주세요. (30분 주기 갱신)';
         }
 
         // Parse Lists
@@ -197,7 +168,9 @@ export default async function MonitorPage() {
                             System Monitor
                         </h1>
                         <p className="text-zinc-500 dark:text-zinc-400 mt-1 flex items-center gap-2">
-                            실시간 수집 현황 및 데이터 분석 대시보드
+                            <span className="text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full border border-amber-200 dark:border-amber-700 font-medium">
+                                ⚡ Cache Mode (30min)
+                            </span>
                             <span className="text-xs px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-full border border-zinc-200 dark:border-zinc-700">
                                 Updated: {lastUpdatedFormatted}
                             </span>
@@ -393,8 +366,8 @@ export default async function MonitorPage() {
 
             </div>
 
-            {/* Auto Refresh Component - refreshes page every 10 minutes */}
-            <AutoRefresh interval={600000} />
+            {/* Auto Refresh Component - refreshes page every 30 minutes (was 10) */}
+            <AutoRefresh interval={1800000} />
         </div>
     );
 }

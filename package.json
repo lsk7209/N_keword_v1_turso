@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "migrate:to-turso": "tsx scripts/migrate-to-turso.ts"
+    "migrate:to-turso": "tsx scripts/migrate-to-turso.ts",
+    "update-stats": "tsx scripts/update-stats.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
