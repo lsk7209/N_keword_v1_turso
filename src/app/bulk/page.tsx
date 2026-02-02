@@ -44,6 +44,19 @@ export default function BulkPage() {
     const [meta, setMeta] = useState<ApiResponse['meta'] | null>(null);
     const [error, setError] = useState<string | null>(null);
 
+    const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null);
+
+    // Helper to chunk array
+    const chunkArray = <T,>(array: T[], size: number): T[][] => {
+        const chunked: T[][] = [];
+        let index = 0;
+        while (index < array.length) {
+            chunked.push(array.slice(index, index + size));
+            index += size;
+        }
+        return chunked;
+    };
+
     const handleInquire = async () => {
         if (!input.trim()) {
             toast.error('키워드를 입력해주세요.');
@@ -54,6 +67,7 @@ export default function BulkPage() {
         setError(null);
         setResults([]);
         setMeta(null);
+        setProgress(null);
 
         const keywords = input.split('\n').map(k => k.trim()).filter(k => k);
 
@@ -62,33 +76,101 @@ export default function BulkPage() {
             return;
         }
 
-        try {
-            toast.info(`🔍 ${keywords.length}개 키워드 수집 시작... (최대 5분 소요)`);
+        const CHUNK_SIZE = 3;
+        const CONCURRENCY_LIMIT = 3; // 🚀 Parallel Request Limit
 
-            const res = await fetch('/api/keywords/bulk', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ keywords }),
+        const chunks = chunkArray(keywords, CHUNK_SIZE);
+        let allResults: KeywordData[] = [];
+        let failedCount = 0;
+        let completedChunks = 0;
+
+        try {
+            toast.info(`🚀 ${keywords.length}개 키워드 고속 수집 시작... (동시 ${CONCURRENCY_LIMIT}개 요청)`);
+
+            // Helper for concurrent execution
+            const processChunk = async (chunk: string[], index: number) => {
+                const currentBatchNum = index + 1;
+                try {
+                    const res = await fetch('/api/keywords/bulk', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ keywords: chunk }),
+                    });
+
+                    const text = await res.text();
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (e) {
+                        throw new Error(`Server returned non-JSON response`);
+                    }
+
+                    if (!res.ok) {
+                        throw new Error(data.error || 'Failed to fetch');
+                    }
+
+                    if (data.data) {
+                        allResults = [...allResults, ...data.data];
+                        setResults(prev => [...prev, ...data.data]); // Update UI immediately
+                    }
+                } catch (batchError) {
+                    console.error(`Batch ${currentBatchNum} failed:`, batchError);
+                    failedCount += chunk.length;
+                } finally {
+                    completedChunks++;
+                    setProgress({
+                        current: completedChunks,
+                        total: chunks.length,
+                        message: `고속 수집 중: ${Math.round((completedChunks / chunks.length) * 100)}% (${completedChunks}/${chunks.length} 완료)`
+                    });
+                }
+            };
+
+            // ⚡ Concurrency Pool Implementation
+
+            await new Promise<void>((resolve) => {
+                let active = 0;
+                let nextIndex = 0;
+
+                const next = () => {
+                    if (nextIndex >= chunks.length && active === 0) {
+                        resolve();
+                        return;
+                    }
+
+                    while (active < CONCURRENCY_LIMIT && nextIndex < chunks.length) {
+                        active++;
+                        const idx = nextIndex++;
+                        processChunk(chunks[idx], idx).then(() => {
+                            active--;
+                            next();
+                        });
+                    }
+                };
+
+                next(); // Start the loop
             });
 
-            const data: ApiResponse = await res.json();
 
-            if (data.error) {
-                throw new Error(data.error);
+            // Final Metadata Update
+            setMeta({
+                totalCollected: allResults.length,
+                displayed: allResults.length,
+                savedOnly: 0
+            });
+
+            if (failedCount > 0) {
+                toast.warning(`${failedCount}개 키워드는 실패했지만, ${allResults.length}개는 성공했습니다.`);
+            } else {
+                toast.success(`⚡ 고속 수집 완료! 총 ${allResults.length}개 키워드`);
             }
 
-            setResults(data.data || []);
-            setMeta(data.meta || null);
-
-            const displayCount = data.data?.length || 0;
-            const totalCount = data.meta?.totalCollected || displayCount;
-            toast.success(`✅ 수집 완료! ${displayCount}개 표시 / 총 ${totalCount}개 수집`);
-
-        } catch (err: any) {
-            setError(err.message || '오류가 발생했습니다.');
-            toast.error(err.message || '오류가 발생했습니다.');
+        } catch (e: any) {
+            setError(e.message || '알 수 없는 오류가 발생했습니다.');
+            toast.error('수집 중 오류가 발생했습니다.');
         } finally {
             setIsLoading(false);
+            setProgress(null);
         }
     };
 
@@ -326,10 +408,10 @@ export default function BulkPage() {
                                             <Loader2 className="w-10 h-10 animate-spin text-green-600" />
                                             <div className="text-center">
                                                 <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
-                                                    연관검색어 확장 및 문서수 수집 중...
+                                                    {progress ? progress.message : '연관검색어 확장 및 문서수 수집 중...'}
                                                 </p>
                                                 <p className="text-xs text-zinc-400 mt-1">
-                                                    키워드 수에 따라 최대 5분까지 소요될 수 있습니다.
+                                                    안정적인 수집을 위해 나누어 처리하고 있습니다.
                                                 </p>
                                             </div>
                                         </div>

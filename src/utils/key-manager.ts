@@ -29,6 +29,14 @@ class KeyManager {
     private ensureLoaded() {
         if (this.adKeys.length === 0 && this.searchKeys.length === 0) {
             this.loadKeys();
+
+            // 🎲 Randomize start index to distribute load in serverless environment
+            if (this.adKeys.length > 0) {
+                this.adIndex = Math.floor(Math.random() * this.adKeys.length);
+            }
+            if (this.searchKeys.length > 0) {
+                this.searchIndex = Math.floor(Math.random() * this.searchKeys.length);
+            }
         }
     }
 
