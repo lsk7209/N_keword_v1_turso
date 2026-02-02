@@ -25,11 +25,11 @@ export async function POST(req: NextRequest) {
         }
 
         // 2. Process each seed using Mining Engine
-        // - MAX_KEYWORDS: 1000 (연관검색어 최대 갯수)
+        // - MAX_KEYWORDS: 200 (연관검색어 최대 갯수 - 시간제한 때문에 축소)
         // - LIMIT_DOC_COUNT: 0 = ALL (모든 키워드의 문서수 수집)
         // - MIN_VOLUME: 100 (수집 기준 최소 검색량)
         const LIMIT_DOC_COUNT = 0;  // 0 = Fetch docs for ALL keywords
-        const MAX_KEYWORDS = 1000;
+        const MAX_KEYWORDS = 200;   // Reduced for Vercel 5-min limit
         const MIN_VOLUME = 100;     // 수집 기준
 
         const allItems: Keyword[] = [];
