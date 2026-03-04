@@ -2,8 +2,8 @@ name: 📄 문서수 수집 크론 (Document Count Collection)
 
 on:
   schedule:
-    # 🚀 초안정 고수집: 15분 주기로 운영 (사용자 요청 반영)
-    - cron: '0,15,30,45 * * * *'
+    # 💤 저비용 수거 모드: 2시간마다 운영 (키워드 수집과 겹치지 않게 30분 오프셋)
+    - cron: '30 */2 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -28,12 +28,12 @@ jobs:
           START_TIME=$(date +%s)
           echo "📄🚀 Starting STABLE document count collection at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
-          RUN_FOR_SECONDS=450  # 7.5분간 루프 실행
+          RUN_FOR_SECONDS=120  # 2분간 파편 루프 실행
           INTERVAL_SECONDS=20  # 20초 간격
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # ⚠️ Safe Mode: fillBatch=200, maxRunMs=40000 (40s)
-          PARAMS="task=fill_docs&mode=TURBO&fillBatch=200&fillConcurrency=480&maxRunMs=40000"
+          # ⚠️ Safe Mode: fillBatch=50, maxRunMs=40000 (40s)
+          PARAMS="task=fill_docs&mode=TURBO&fillBatch=50&fillConcurrency=30&maxRunMs=40000"
           API_URL="${{ secrets.PROD_URL }}/api/miner/execute?$PARAMS"
 
           TOTAL_OK=0

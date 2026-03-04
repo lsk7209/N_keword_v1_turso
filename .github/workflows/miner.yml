@@ -2,8 +2,8 @@ name: Golden Keyword Miner Cron
 
 on:
   schedule:
-    # 🚀 초안정 고수집: 15분 주기로 운영 (사용자 요청 반영)
-    - cron: '*/15 * * * *'
+    # 💤 저비용 수거 모드: 2시간마다 운영 (데이터베이스 절약)
+    - cron: '0 */2 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -26,10 +26,10 @@ jobs:
           fi
           
           START_TIME=$(date +%s)
-          echo "🚀🚀🚀 Starting STABLE HIGH-VOLUME mining at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "🚀🚀🚀 Starting LOW-COST mining at $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
           # 📊 13개 AD API 키 기반 최적화
-          # - 초안정 모드: 배치 200개, 동시성 자동 조절
+          # - 저비용 모드: 배치 50개, 동시성 조절
           
           # 🆕 Step 1: 대량 키워드 큐 처리 (있는 경우만)
           echo "📋 Checking bulk queue..."
@@ -40,12 +40,12 @@ jobs:
           echo "Queue response: $QUEUE_RESPONSE"
           
           # Step 2: 일반 마이너 루프 실행
-          RUN_FOR_SECONDS=450  # 7.5분간 루프 실행
+          RUN_FOR_SECONDS=120  # 2분간 파편 루프 실행
           INTERVAL_SECONDS=20  # 20초 간격
           END_TIME=$((START_TIME + RUN_FOR_SECONDS))
 
-          # ⚠️ Safe Mode: expandBatch=200, maxRunMs=40000 (40s)
-          PARAMS="task=expand&mode=TURBO&expandBatch=200&expandConcurrency=130&minSearchVolume=30&maxRunMs=40000"
+          # ⚠️ Safe Mode: expandBatch=50, maxRunMs=40000 (40s)
+          PARAMS="task=expand&mode=TURBO&expandBatch=50&expandConcurrency=10&minSearchVolume=30&maxRunMs=40000"
           API_URL="${{ secrets.PROD_URL }}/api/miner/execute?$PARAMS"
 
           TOTAL_OK=0
