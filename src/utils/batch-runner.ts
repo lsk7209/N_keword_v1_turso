@@ -502,15 +502,19 @@ async function runFillDocsTask(batchSize: number, concurrency: number, deadline:
 async function resetStuckKeywords() {
     const db = getTursoClient();
     try {
-        // 1. Check count first (Cheap)
-        const check = await db.execute("SELECT count(*) as count FROM keywords WHERE is_expanded = 2 AND updated_at < datetime('now', '-1 hour')");
-        const count = check.rows[0].count as number;
+        // 🚀 Optimization: Direct UPDATE without SELECT COUNT(*) to save reads.
+        const result = await db.execute("UPDATE keywords SET is_expanded = 0 WHERE is_expanded = 2 AND updated_at < datetime('now', '-1 hour')");
 
-        if (count > 0) {
-            console.log(`[BatchRunner] 🚑 Found ${count} stuck keywords. Auto-healing...`);
-            await db.execute("UPDATE keywords SET is_expanded = 0 WHERE is_expanded = 2 AND updated_at < datetime('now', '-1 hour')");
-            console.log(`[BatchRunner] ✅ Auto-healed ${count} keywords.`);
+        if (result.rowsAffected > 0) {
+            console.log(`[BatchRunner] 🚑 Auto-healed ${result.rowsAffected} stuck expanded keywords.`);
         }
+
+        // 🚀 Duplicate for filling docs (if we want to heal stuck doc fills)
+        const docResult = await db.execute("UPDATE keywords SET total_doc_cnt = NULL WHERE total_doc_cnt = -2 AND updated_at < datetime('now', '-1 hour')");
+        if (docResult.rowsAffected > 0) {
+            console.log(`[BatchRunner] 🚑 Auto-healed ${docResult.rowsAffected} stuck doc-fill keywords.`);
+        }
+
     } catch (e) {
         console.error('[BatchRunner] Auto-healing check failed:', e);
     }

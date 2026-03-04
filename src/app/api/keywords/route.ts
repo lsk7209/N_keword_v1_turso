@@ -105,13 +105,37 @@ export async function GET(req: NextRequest) {
         orderBy = 'ORDER BY total_search_cnt DESC';
     }
 
-    // Get total count
-    const countSql = `SELECT COUNT(*) as count FROM keywords ${whereClause}`;
-    const countResult = await db.execute({
-        sql: countSql,
-        args: args // Use collected args for WHERE conditions
-    });
-    const total = countResult.rows[0]?.count as number || 0;
+    // 🚀 Optimization: Use stats_cache for total count when no complex filters are applied
+    const isSimpleTotal = !searchParam && tiers.length === 0 && minSearchVolume === null && !requiresDocs;
+    const isSimpleAnalyzed = !searchParam && tiers.length === 0 && minSearchVolume === null && ['tier_desc', 'tier_asc'].includes(sort);
+
+    let total = 0;
+    let usedCacheCount = false;
+
+    if (isSimpleTotal || isSimpleAnalyzed) {
+        try {
+            const cacheRes = await db.execute("SELECT value FROM stats_cache WHERE key = 'monitor_stats'");
+            if (cacheRes.rows.length > 0 && cacheRes.rows[0].value) {
+                const stats = JSON.parse(cacheRes.rows[0].value as string);
+                const cacheVal = isSimpleTotal ? stats.total : stats.analyzed;
+                if (typeof cacheVal === 'number' && cacheVal > 0) {
+                    total = cacheVal;
+                    usedCacheCount = true;
+                }
+            }
+        } catch (e) {
+            console.warn('[API/Keywords] Failed to read total count from stats_cache', e);
+        }
+    }
+
+    if (!usedCacheCount) {
+        const countSql = `SELECT COUNT(*) as count FROM keywords ${whereClause}`;
+        const countResult = await db.execute({
+            sql: countSql,
+            args: args // Use collected args for WHERE conditions
+        });
+        total = countResult.rows[0]?.count as number || 0;
+    }
 
     // Get data with pagination
     const dataSql = `SELECT * FROM keywords ${whereClause} ${orderBy} LIMIT ? OFFSET ?`;
