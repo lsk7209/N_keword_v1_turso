@@ -1,178 +1,209 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getTursoClient } from "@/utils/turso";
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getTursoClient } from '@/utils/turso';
-
-export const dynamic = 'force-dynamic';
-export const revalidate = 60; // Cache for 60 seconds
-
+export const revalidate = 60;
 
 // Helper for approximate count if needed, but Supabase count('exact') is okay for < 1M usually.
 // Or restrict count to filtered set.
 
 export async function GET(req: NextRequest) {
-    const { searchParams } = new URL(req.url);
-    const authHeader = req.headers.get('CRON_SECRET');
-    const queryKey = searchParams.get('key');
-    const secret = process.env.CRON_SECRET;
+  const { searchParams } = new URL(req.url);
+  const authHeader = req.headers.get("CRON_SECRET");
+  const queryKey = searchParams.get("key");
+  const secret = process.env.CRON_SECRET;
 
-    // 인증이 제공된 경우에만 검증 (선택적 인증)
-    // 인증 없이도 공개 데이터 조회 가능
-    if (secret && (authHeader || queryKey)) {
-        // 인증 정보가 제공되었지만 일치하지 않는 경우에만 거부
-        if (authHeader !== secret && queryKey !== secret) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+  // 인증이 제공된 경우에만 검증 (선택적 인증)
+  // 인증 없이도 공개 데이터 조회 가능
+  if (secret && (authHeader || queryKey)) {
+    // 인증 정보가 제공되었지만 일치하지 않는 경우에만 거부
+    if (authHeader !== secret && queryKey !== secret) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+  }
 
-    // Support both cursor-based and page-based pagination
-    const page = parseInt(searchParams.get('page') || '0');
-    const cursor = page > 0 ? (page - 1) * 100 : parseInt(searchParams.get('cursor') || '0');
-    const limit = parseInt(searchParams.get('limit') || '100');
-    const sort = searchParams.get('sort') || 'search_desc'; // search_desc, opp_desc, cafe_asc, blog_asc, web_asc, news_asc, tier_desc
-    const minSearchVolumeParam = searchParams.get('minSearchVolume');
-    const minSearchVolume = minSearchVolumeParam ? parseInt(minSearchVolumeParam, 10) : null;
-    const searchParam = searchParams.get('search');
-    const tiersParam = searchParams.get('tiers'); // comma separated: PLATINUM,GOLD
-    const tiers = tiersParam ? tiersParam.split(',') : [];
+  // Support both cursor-based and page-based pagination
+  const page = parseInt(searchParams.get("page") || "0");
+  const cursor =
+    page > 0 ? (page - 1) * 100 : parseInt(searchParams.get("cursor") || "0");
+  const limit = parseInt(searchParams.get("limit") || "100");
+  const sort = searchParams.get("sort") || "search_desc"; // search_desc, opp_desc, cafe_asc, blog_asc, web_asc, news_asc, tier_desc
+  const minSearchVolumeParam = searchParams.get("minSearchVolume");
+  const minSearchVolume = minSearchVolumeParam
+    ? parseInt(minSearchVolumeParam, 10)
+    : null;
+  const searchParam = searchParams.get("search");
+  const tiersParam = searchParams.get("tiers"); // comma separated: PLATINUM,GOLD
+  const tiers = tiersParam ? tiersParam.split(",") : [];
 
-    const db = getTursoClient();
-    // 문서수가 필요한 정렬: 등급순, 카페/블로그/웹/뉴스 적은순 (전체 조회 제외)
-    // 단, 티어 필터가 있으면 문서수가 무조건 있어야 함 (티어는 문서수 기반이므로)
-    const requiresDocs = tiers.length > 0 || ['tier_desc', 'tier_asc', 'cafe_asc', 'blog_asc', 'web_asc', 'news_asc'].includes(sort);
+  const db = getTursoClient();
+  // 문서수가 필요한 정렬: 등급순, 카페/블로그/웹/뉴스 적은순 (전체 조회 제외)
+  // 단, 티어 필터가 있으면 문서수가 무조건 있어야 함 (티어는 문서수 기반이므로)
+  const requiresDocs =
+    tiers.length > 0 ||
+    [
+      "tier_desc",
+      "tier_asc",
+      "cafe_asc",
+      "blog_asc",
+      "web_asc",
+      "news_asc",
+    ].includes(sort);
 
-    // Build WHERE clause
-    const whereConditions: string[] = [];
-    const args: any[] = [];
+  // Build WHERE clause
+  const whereConditions: string[] = [];
+  const args: any[] = [];
 
-    // 키워드 검색
-    if (searchParam) {
-        whereConditions.push(`keyword LIKE ?`);
-        args.push(`%${searchParam}%`);
-    }
+  // 키워드 검색
+  if (searchParam) {
+    whereConditions.push(`keyword LIKE ?`);
+    args.push(`%${searchParam}%`);
+  }
 
-    // 티어 필터
-    if (tiers.length > 0) {
-        // Safe parameter injection for IN clause
-        const placeholders = tiers.map(() => '?').join(',');
-        whereConditions.push(`tier IN (${placeholders})`);
-        args.push(...tiers);
-    }
+  // 티어 필터
+  if (tiers.length > 0) {
+    // Safe parameter injection for IN clause
+    const placeholders = tiers.map(() => "?").join(",");
+    whereConditions.push(`tier IN (${placeholders})`);
+    args.push(...tiers);
+  }
 
-    // 문서수 필터 (정렬에 따라)
-    if (requiresDocs) {
-        if (sort === 'cafe_asc') {
-            // 카페 적은순: 카페 문서수가 0이 아닌 것만 (NULL도 제외)
-            whereConditions.push('total_doc_cnt IS NOT NULL AND cafe_doc_cnt > 0');
-        } else if (sort === 'blog_asc') {
-            // 블로그 적은순: 블로그 문서수가 0이 아닌 것만
-            whereConditions.push('total_doc_cnt IS NOT NULL AND blog_doc_cnt > 0');
-        } else if (sort === 'web_asc') {
-            // 웹 적은순: 웹 문서수가 0이 아닌 것만
-            whereConditions.push('total_doc_cnt IS NOT NULL AND web_doc_cnt > 0');
-        } else if (sort === 'news_asc') {
-            // 뉴스 적은순: 뉴스 문서수가 0이 아닌 것만
-            whereConditions.push('total_doc_cnt IS NOT NULL AND news_doc_cnt > 0');
-        } else {
-            // 등급순: 문서수가 있는 것만 (total_doc_cnt IS NOT NULL)
-            whereConditions.push('total_doc_cnt IS NOT NULL');
-        }
-    }
-
-    // 총검색량 필터
-    if (minSearchVolume !== null && !isNaN(minSearchVolume) && minSearchVolume > 0) {
-        whereConditions.push(`total_search_cnt >= ${minSearchVolume}`);
-    }
-
-    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
-
-    // Build ORDER BY clause
-    let orderBy = '';
-    if (sort === 'tier_desc') {
-        orderBy = 'ORDER BY tier ASC, golden_ratio DESC';
-    } else if (sort === 'tier_asc') {
-        orderBy = 'ORDER BY tier DESC, golden_ratio ASC';
-    } else if (sort === 'opp_desc') {
-        orderBy = 'ORDER BY golden_ratio DESC';
-    } else if (sort === 'cafe_asc') {
-        orderBy = 'ORDER BY cafe_doc_cnt ASC, total_search_cnt DESC';
-    } else if (sort === 'blog_asc') {
-        orderBy = 'ORDER BY blog_doc_cnt ASC, total_search_cnt DESC';
-    } else if (sort === 'web_asc') {
-        orderBy = 'ORDER BY web_doc_cnt ASC, total_search_cnt DESC';
-    } else if (sort === 'news_asc') {
-        orderBy = 'ORDER BY news_doc_cnt ASC, total_search_cnt DESC';
+  // 문서수 필터 (정렬에 따라)
+  if (requiresDocs) {
+    if (sort === "cafe_asc") {
+      // 카페 적은순: 카페 문서수가 0이 아닌 것만 (NULL도 제외)
+      whereConditions.push("total_doc_cnt IS NOT NULL AND cafe_doc_cnt > 0");
+    } else if (sort === "blog_asc") {
+      // 블로그 적은순: 블로그 문서수가 0이 아닌 것만
+      whereConditions.push("total_doc_cnt IS NOT NULL AND blog_doc_cnt > 0");
+    } else if (sort === "web_asc") {
+      // 웹 적은순: 웹 문서수가 0이 아닌 것만
+      whereConditions.push("total_doc_cnt IS NOT NULL AND web_doc_cnt > 0");
+    } else if (sort === "news_asc") {
+      // 뉴스 적은순: 뉴스 문서수가 0이 아닌 것만
+      whereConditions.push("total_doc_cnt IS NOT NULL AND news_doc_cnt > 0");
     } else {
-        orderBy = 'ORDER BY total_search_cnt DESC';
+      // 등급순: 문서수가 있는 것만 (total_doc_cnt IS NOT NULL)
+      whereConditions.push("total_doc_cnt IS NOT NULL");
     }
+  }
 
-    // 🚀 Optimization: Use stats_cache for total count when no complex filters are applied
-    const isSimpleTotal = !searchParam && tiers.length === 0 && minSearchVolume === null && !requiresDocs;
-    const isSimpleAnalyzed = !searchParam && tiers.length === 0 && minSearchVolume === null && ['tier_desc', 'tier_asc'].includes(sort);
+  // 총검색량 필터
+  if (
+    minSearchVolume !== null &&
+    !isNaN(minSearchVolume) &&
+    minSearchVolume > 0
+  ) {
+    whereConditions.push(`total_search_cnt >= ${minSearchVolume}`);
+  }
 
-    let total = 0;
-    let usedCacheCount = false;
+  const whereClause =
+    whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : "";
 
-    if (isSimpleTotal || isSimpleAnalyzed) {
-        try {
-            const cacheRes = await db.execute("SELECT value FROM stats_cache WHERE key = 'monitor_stats'");
-            if (cacheRes.rows.length > 0 && cacheRes.rows[0].value) {
-                const stats = JSON.parse(cacheRes.rows[0].value as string);
-                const cacheVal = isSimpleTotal ? stats.total : stats.analyzed;
-                if (typeof cacheVal === 'number' && cacheVal > 0) {
-                    total = cacheVal;
-                    usedCacheCount = true;
-                }
-            }
-        } catch (e) {
-            console.warn('[API/Keywords] Failed to read total count from stats_cache', e);
+  // Build ORDER BY clause
+  let orderBy = "";
+  if (sort === "tier_desc") {
+    orderBy = "ORDER BY tier ASC, golden_ratio DESC";
+  } else if (sort === "tier_asc") {
+    orderBy = "ORDER BY tier DESC, golden_ratio ASC";
+  } else if (sort === "opp_desc") {
+    orderBy = "ORDER BY golden_ratio DESC";
+  } else if (sort === "cafe_asc") {
+    orderBy = "ORDER BY cafe_doc_cnt ASC, total_search_cnt DESC";
+  } else if (sort === "blog_asc") {
+    orderBy = "ORDER BY blog_doc_cnt ASC, total_search_cnt DESC";
+  } else if (sort === "web_asc") {
+    orderBy = "ORDER BY web_doc_cnt ASC, total_search_cnt DESC";
+  } else if (sort === "news_asc") {
+    orderBy = "ORDER BY news_doc_cnt ASC, total_search_cnt DESC";
+  } else {
+    orderBy = "ORDER BY total_search_cnt DESC";
+  }
+
+  // 🚀 Optimization: Use stats_cache for total count when no complex filters are applied
+  const isSimpleTotal =
+    !searchParam &&
+    tiers.length === 0 &&
+    minSearchVolume === null &&
+    !requiresDocs;
+  const isSimpleAnalyzed =
+    !searchParam &&
+    tiers.length === 0 &&
+    minSearchVolume === null &&
+    ["tier_desc", "tier_asc"].includes(sort);
+
+  let total = 0;
+  let usedCacheCount = false;
+
+  if (isSimpleTotal || isSimpleAnalyzed) {
+    try {
+      const cacheRes = await db.execute(
+        "SELECT value FROM stats_cache WHERE key = 'monitor_stats'",
+      );
+      if (cacheRes.rows.length > 0 && cacheRes.rows[0].value) {
+        const stats = JSON.parse(cacheRes.rows[0].value as string);
+        const cacheVal = isSimpleTotal ? stats.total : stats.analyzed;
+        if (typeof cacheVal === "number" && cacheVal > 0) {
+          total = cacheVal;
+          usedCacheCount = true;
         }
+      }
+    } catch (e) {
+      console.warn(
+        "[API/Keywords] Failed to read total count from stats_cache",
+        e,
+      );
     }
+  }
 
-    if (!usedCacheCount) {
-        const countSql = `SELECT COUNT(*) as count FROM keywords ${whereClause}`;
-        const countResult = await db.execute({
-            sql: countSql,
-            args: args // Use collected args for WHERE conditions
-        });
-        total = countResult.rows[0]?.count as number || 0;
-    }
-
-    // Get data with pagination
-    const dataSql = `SELECT * FROM keywords ${whereClause} ${orderBy} LIMIT ? OFFSET ?`;
-    const dataResult = await db.execute({
-        sql: dataSql,
-        args: [...args, limit, cursor] // WHERE args + LIMIT + OFFSET
+  if (!usedCacheCount) {
+    const countSql = `SELECT COUNT(*) as count FROM keywords ${whereClause}`;
+    const countResult = await db.execute({
+      sql: countSql,
+      args: args, // Use collected args for WHERE conditions
     });
+    total = (countResult.rows[0]?.count as number) || 0;
+  }
 
-    const data = dataResult.rows.map(row => ({
-        id: row.id,
-        keyword: row.keyword,
-        total_search_cnt: row.total_search_cnt,
-        pc_search_cnt: row.pc_search_cnt,
-        mo_search_cnt: row.mo_search_cnt,
-        click_cnt: row.click_cnt,
-        ctr: row.ctr,
-        comp_idx: row.comp_idx,
-        pl_avg_depth: row.pl_avg_depth,
-        avg_bid_price: row.avg_bid_price,
-        total_doc_cnt: row.total_doc_cnt,
-        blog_doc_cnt: row.blog_doc_cnt,
-        cafe_doc_cnt: row.cafe_doc_cnt,
-        web_doc_cnt: row.web_doc_cnt,
-        news_doc_cnt: row.news_doc_cnt,
-        tier: row.tier,
-        golden_ratio: row.golden_ratio,
-        is_expanded: row.is_expanded === 1,
-        created_at: row.created_at,
-        updated_at: row.updated_at
-    }));
+  // Get data with pagination
+  const dataSql = `SELECT * FROM keywords ${whereClause} ${orderBy} LIMIT ? OFFSET ?`;
+  const dataResult = await db.execute({
+    sql: dataSql,
+    args: [...args, limit, cursor], // WHERE args + LIMIT + OFFSET
+  });
 
-    const nextCursor = (data && data.length === limit) ? cursor + limit : null;
+  const data = dataResult.rows.map((row) => ({
+    id: row.id,
+    keyword: row.keyword,
+    total_search_cnt: row.total_search_cnt,
+    pc_search_cnt: row.pc_search_cnt,
+    mo_search_cnt: row.mo_search_cnt,
+    click_cnt: row.click_cnt,
+    ctr: row.ctr,
+    comp_idx: row.comp_idx,
+    pl_avg_depth: row.pl_avg_depth,
+    avg_bid_price: row.avg_bid_price,
+    total_doc_cnt: row.total_doc_cnt,
+    blog_doc_cnt: row.blog_doc_cnt,
+    cafe_doc_cnt: row.cafe_doc_cnt,
+    web_doc_cnt: row.web_doc_cnt,
+    news_doc_cnt: row.news_doc_cnt,
+    tier: row.tier,
+    golden_ratio: row.golden_ratio,
+    is_expanded: row.is_expanded === 1,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
 
-    return NextResponse.json({
-        data,
-        nextCursor,
-        total
-    });
+  const nextCursor = data && data.length === limit ? cursor + limit : null;
+
+  const response = NextResponse.json({
+    data,
+    nextCursor,
+    total,
+  });
+  response.headers.set(
+    "Cache-Control",
+    "s-maxage=60, stale-while-revalidate=300",
+  );
+  return response;
 }
-
