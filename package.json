@@ -17,7 +17,7 @@
     "@tanstack/react-virtual": "^3.13.13",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.556.0",
-    "next": "16.0.8",
+    "next": "16.0.10",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "sonner": "^2.0.7"
