@@ -32,7 +32,7 @@
 ### 로컬 개발 (.env.local)
 ```env
 TURSO_DATABASE_URL=libsql://nkeword-igeonu377.aws-ap-northeast-1.turso.io
-TURSO_AUTH_TOKEN=eyJhbGciOiJFZERTQSIsInR5cCI6IkpUVCJ9.eyJhIjoicnciLCJpYXQiOjE3NjY3NDkyMTEsImlkIjoiOTdmODdhYTQtY2E1MS00NWNhLWJhZWItYzBhMjQ3Y2JhZWM5IiwicmlkIjoiYzllZWNhMWMtMmM3MS00ZjA2LTk4M2QtYzBkYTM2NmM2ZjcxIn0.1iNmefqRXrlCGqyRQ8qT7HoT7jhJ7A2fzwmd0OhvDRrCVXpaI1rmj6u9vhhwLS0JmRg1rvd55rDmM1NC_7q4Cg
+TURSO_AUTH_TOKEN=<Turso 대시보드에서 발급한 auth token>
 ```
 
 ### Vercel 환경 변수
