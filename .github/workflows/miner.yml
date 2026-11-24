@@ -1,9 +1,6 @@
 name: Golden Keyword Miner Cron
 
 on:
-  schedule:
-    # 💤 저비용 수거 모드: 2시간마다 운영 (데이터베이스 절약)
-    - cron: '0 */2 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
