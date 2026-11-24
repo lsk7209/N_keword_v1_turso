@@ -35,7 +35,7 @@ jobs:
           echo "📋 Checking bulk queue..."
           QUEUE_URL="${{ secrets.PROD_URL }}/api/miner/execute?task=process_queue"
           QUEUE_RESPONSE=$(curl -s -X GET "$QUEUE_URL" \
-            -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             --max-time 60) || echo "{}"
           echo "Queue response: $QUEUE_RESPONSE"
           
@@ -60,7 +60,7 @@ jobs:
 
             while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
               RESPONSE=$(curl -X GET "$API_URL" \
-                -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
+                -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
                 -w "\n%{http_code}" \
                 --max-time 75 \
                 --silent \

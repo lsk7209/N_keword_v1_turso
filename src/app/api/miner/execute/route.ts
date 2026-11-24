@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runMiningBatch } from '@/utils/batch-runner';
 import { getTursoClient, generateUUID, getCurrentTimestamp } from '@/utils/turso';
 import { processSeedKeyword, bulkDeferredInsert } from '@/utils/mining-engine';
+import { authorizeCronRequest } from '@/utils/cron-auth';
 
 // Set Vercel Function config
 export const maxDuration = 60; // 60 seconds strict
@@ -156,18 +157,9 @@ async function processQueuedBulkMining(): Promise<any> {
 }
 
 export async function GET(req: NextRequest) {
-    // 1. Auth Check
-    const authHeader = req.headers.get('Authorization'); // Support Bearer
-    const cronHeader = req.headers.get('CRON_SECRET');
-    const vercelCronHeader = req.headers.get('x-vercel-cron'); // Vercel Cron 자동 인증
-    const queryKey = req.nextUrl.searchParams.get('key');
-    const secret = process.env.CRON_SECRET || 'manual-override-key';
-
-    // Flexible Auth: Vercel Cron (자동), Cron Header, Query Param, or Bearer Token
-    const isAuthorized = vercelCronHeader === '1' || (cronHeader === secret) || (queryKey === secret) || (authHeader === `Bearer ${secret}`);
-
-    if (!isAuthorized) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const authorization = authorizeCronRequest(req.headers.get('authorization'), process.env.CRON_SECRET);
+    if (!authorization.ok) {
+        return NextResponse.json({ error: authorization.error }, { status: authorization.status });
     }
 
     try {
@@ -285,14 +277,14 @@ export async function GET(req: NextRequest) {
                 });
             }
 
-            const selfUrl = `${req.nextUrl.origin}/api/miner/execute?key=${secret}`;
-            console.log(`[Miner] Turbo Mode Active. Spawning next batch: ${selfUrl}`);
+            const selfUrl = `${req.nextUrl.origin}/api/miner/execute`;
+            console.log('[Miner] Turbo Mode Active. Spawning next batch');
 
             // Spawn next run (best-effort). Keep awaited behavior to avoid unhandled work getting dropped.
             try {
                 await fetch(selfUrl, {
                     method: 'GET',
-                    headers: { 'CRON_SECRET': secret }
+                    headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` }
                 });
             } catch (err) {
                 console.error('[Miner] Failed to spawn next recursion:', err);

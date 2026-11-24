@@ -20,7 +20,7 @@ Vercel은 Next.js 개발사가 만든 호스팅 서비스로, 서버리스 함�
 | `SUPABASE_SERVICE_ROLE_KEY` | **(중요)** Supabase 관리자 키 | `eyJxh...` (절대 공개 금지) |
 | `NAVER_AD_KEYS` | 네이버 광고 API 키 (JSON 배열 문자열) | `[{"key":"...","secret":"...","cust":"..."}]` |
 | `NAVER_SEARCH_KEYS` | 네이버 검색 API 키 (JSON 배열 문자열) | `[{"key":"...","secret":"..."}]` |
-| `CRON_SECRET` | 크론 작업 실행용 비밀키 | `MySuperSecretCronKey123!` |
+| `CRON_SECRET` | 크론 작업 실행용 비밀키 | `<GENERATE_RANDOM_SECRET>` |
 
 *팁: `.env.local` 파일을 열어서 전체 내용을 복사한 후, Vercel의 변수 입력창에 붙여넣기하면 한 번에 파싱됩니다.*
 

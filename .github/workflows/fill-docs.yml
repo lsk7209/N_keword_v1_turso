@@ -49,7 +49,7 @@ jobs:
 
             while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
               RESPONSE=$(curl -X GET "$API_URL" \
-                -H "CRON_SECRET: ${{ secrets.CRON_SECRET }}" \
+                -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
                 -w "\n%{http_code}" \
                 --max-time 75 \
                 --silent \
